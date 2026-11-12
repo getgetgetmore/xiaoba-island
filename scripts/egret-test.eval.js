@@ -7,6 +7,7 @@ const checks = {};
 const ck = (k, ok, info) => { checks[k] = (ok ? 'PASS' : 'FAIL') + (info !== undefined ? ' ' + info : ''); };
 const run = (sec, each) => { const n = Math.round(sec * 30); for (let i = 0; i < n; i++) { P.step(1 / 30, 1); if (each && each(i / 30) === false) return i / 30; } return sec; };
 const until = (fn, max) => run(max, () => !fn());
+await T.whenReady(); // 等白鹭模型加载完（下面的循环都是同步的，加载的回调插不进来）
 env.setWeather('clear', { instant: true }); env.setHour(10);
 run(3);
 
@@ -46,7 +47,7 @@ env.setHour(10.2);
 until(() => B.canGame() && !M.inKennel && !M.onRamp, 60);
 ck('3a 来访（带狗走）', T.debugStart('ride') === true);
 until(() => T.phase === 'board' || T.phase === 'idle', 40);
-ck('3b 小狗被接管，跑向白鹭', T.phase === 'board' && B.mode === 'game', T.phase + ' / ' + B.mode);
+ck('3b 小狗被接管，跑向白鹭', T.phase === 'board' && B.mode === 'game', T.phase + ' / ' + B.mode + ' / 没走的原因：' + T.info().block + ' / 时间 ' + env.hour.toFixed(2));
 until(() => T.phase === 'mount', 12);
 run(1.0);
 const seat = new P.THREE.Vector3(); let rideOK = false;

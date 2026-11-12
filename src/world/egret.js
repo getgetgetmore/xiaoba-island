@@ -1,4 +1,5 @@
-// 小白鹭（Little Egret）：程序化建模 + 程序动画。
+// 小白鹭（Little Egret）：外形来自导入的模型 src/assets/egret.glb（先调用 preloadEgret() 加载；已由 scripts/tools/egret-rig.mjs 离线绑好骨），
+// 动作全部是程序动画；飞行时展开的翅膀是程序生成的（导入的模型翅膀是收着的）。模型没加载到时退回下面这套纯程序化的造型。
 //  - 整只鸟是一个 SkinnedMesh（1 个 draw call）：身体 / 4 节脖子 / 头 / 双翅各 3 节 / 双腿各 3 节 / 尾 / 蓑羽 / 饰羽
 //    都是刚性绑定到对应骨骼的低面数部件，逐帧只改骨骼的 position / rotation。
 //  - 约定：group 原点 = 站立时两脚之间的地面，头朝本地 +Z，+Y 向上。
@@ -7,7 +8,36 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GeoBuilder, cylBetween, blob, mixHex } from './island/geo.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { paintMaterial } from '../core/paint.js';
+
+// ------------------------------------------------------------------ 导入的模型
+let ASSET = null, assetLoad = null; // { geometry, map, rig }
+/** 加载白鹭模型（只加载一次）。失败时 resolve(false)，之后 createEgret() 用纯程序化造型。 */
+export function preloadEgret() {
+  if (assetLoad) return assetLoad;
+  assetLoad = new Promise((done) => {
+    let url;
+    try { url = new URL('../assets/egret.glb', import.meta.url).href; } catch (_) { done(false); return; }
+    // 用 XMLHttpRequest 取二进制：打包后页面是 file:// 协议，fetch 不一定能读本地文件
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true); xhr.responseType = 'arraybuffer';
+    xhr.onerror = () => done(false);
+    xhr.onload = () => {
+      if (!xhr.response || (xhr.status && xhr.status >= 400)) { done(false); return; }
+      new GLTFLoader().parse(xhr.response, '', (gltf) => {
+        let m = null; gltf.scene.traverse((o) => { if (o.isMesh && !m) m = o; });
+        const node = gltf.scene.getObjectByName('egret') || m;
+        const rig = (node && node.userData && node.userData.rig) || (m && m.userData && m.userData.rig) || (m && m.parent && m.parent.userData && m.parent.userData.rig);
+        if (!m || !rig || !m.geometry.attributes.skinIndex) { done(false); return; }
+        ASSET = { geometry: m.geometry, map: m.material.map || null, rig };
+        done(true);
+      }, () => done(false));
+    };
+    try { xhr.send(); } catch (_) { done(false); }
+  });
+  return assetLoad;
+}
 
 export const EGRET_STATES = ['fly', 'glide', 'land', 'stand', 'walk', 'peck', 'takeoff'];
 
@@ -17,12 +47,12 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const whiteFn = (nx, ny) => mixHex(SHADE, WHITE, clamp(0.55 + 0.5 * ny, 0, 1));
 
 // ------------------------------------------------------------------ 几何常量（站立姿势 = 绑定姿势，翅膀张开）
-const BODY_PIVOT = [0, 1.1, 0];
+const DEF_BODY_PIVOT = [0, 1.1, 0];
 // 脖子各关节（y, z），S 形：下段向前凸、中段向后收、上段又向前
-const NECK = [[1.2, 0.5], [1.42, 0.8], [1.62, 0.52], [1.79, 0.62], [1.9, 0.74]];
-const HEAD_REST = 1.75;
-const WING = { sx: 0.27, sy: 1.26, sz: 0.12, l1: 0.4, l2: 0.43, l3: 0.38 };
-const HIP = [0.11, 1.0, 0.02], ANKLE = [0.11, 0.5, -0.07], FOOT = [0.11, 0.04, 0.0];
+const DEF_NECK = [[1.2, 0.5], [1.42, 0.8], [1.62, 0.52], [1.79, 0.62], [1.9, 0.74]];
+const DEF_HEAD_REST = 1.75;
+const DEF_WING = { sx: 0.27, sy: 1.26, sz: 0.12, l1: 0.4, l2: 0.43, l3: 0.38 };
+const DEF_HIP = [0.11, 1.0, 0.02], DEF_ANKLE = [0.11, 0.5, -0.07], DEF_FOOT = [0.11, 0.04, 0.0];
 const STAND_FOOT_Y = 0.04;
 
 // 一张平面多边形（扇形三角化），点序 → BufferGeometry（非索引）
@@ -59,6 +89,17 @@ function strand(b, pts, r0, r1, color = WHITE) {
 }
 
 export function createEgret() {
+  // 骨架尺寸：有导入的模型就按它的关节位置来，否则用程序化造型的缺省值
+  const A = ASSET, RG = A ? A.rig : null;
+  const BODY_PIVOT = RG ? RG.bodyPivot : DEF_BODY_PIVOT;
+  const NECK = RG ? RG.neck : DEF_NECK;
+  const HEAD_REST = RG ? RG.headRest : DEF_HEAD_REST;
+  const WING = RG ? { ...DEF_WING, ...RG.wing } : DEF_WING;
+  // 两条腿各自的关节（导入的模型是迈步姿态，左右腿的绑定姿势不一样）；toe = 绑定姿势下脚趾向下倾的角度
+  const LEGS = RG ? RG.legs : {
+    R: { hip: [DEF_HIP[0], DEF_HIP[1], DEF_HIP[2]], ankle: [DEF_ANKLE[0], DEF_ANKLE[1], DEF_ANKLE[2]], foot: [DEF_FOOT[0], DEF_FOOT[1], DEF_FOOT[2]], toe: 0 },
+    L: { hip: [-DEF_HIP[0], DEF_HIP[1], DEF_HIP[2]], ankle: [-DEF_ANKLE[0], DEF_ANKLE[1], DEF_ANKLE[2]], foot: [-DEF_FOOT[0], DEF_FOOT[1], DEF_FOOT[2]], toe: 0 },
+  };
   // ================================================================== 骨骼
   const bones = [], boneIndex = {}, boneAbs = {};
   const B = {}; // 每根骨骼一个 GeoBuilder
@@ -97,13 +138,14 @@ export function createEgret() {
   for (const [side, sgn] of [['R', 1], ['L', -1]]) {
     leg[side] = {
       sgn,
-      th: mk('hip' + side, 'body', [sgn * HIP[0], HIP[1], HIP[2]]),
-      an: mk('ankle' + side, 'hip' + side, [sgn * ANKLE[0], ANKLE[1], ANKLE[2]]),
-      ft: mk('foot' + side, 'ankle' + side, [sgn * FOOT[0], FOOT[1], FOOT[2]]),
+      th: mk('hip' + side, 'body', LEGS[side].hip),
+      an: mk('ankle' + side, 'hip' + side, LEGS[side].ankle),
+      ft: mk('foot' + side, 'ankle' + side, LEGS[side].foot),
     };
   }
 
   // ================================================================== 几何
+  if (!A) {
   // —— 身体：前窄后宽的水滴形
   blob(B.body, [0, 1.15, 0.3], 1, 1, { color: whiteFn, scale: [0.22, 0.26, 0.3] });
   blob(B.body, [0, 1.08, -0.08], 1, 1, { color: whiteFn, scale: [0.27, 0.27, 0.42] });
@@ -140,6 +182,7 @@ export function createEgret() {
   }
   // —— 尾：短扇
   for (let i = 0; i < 5; i++) leaf(B.tail, [0, 1.12 + i * 0.004, -0.52], (i - 2) * 0.13, 0.26, 0.1, 1);
+  }
   // —— 翅膀（张开姿势）：前缘细管 + 一排排叶形飞羽；初级飞羽在手部扇形展开
   for (const side of ['R', 'L']) {
     const sgn = wing[side].sgn, W = WING;
@@ -157,8 +200,8 @@ export function createEgret() {
     for (let i = 0; i < 6; i++) leaf(B['wrist' + side], [X(e2 + 0.02 + i * 0.045), y0 + 0.003 * (i % 2) - 0.004, z0 - 0.06 - i * 0.004], 0.2 + i * 0.16, 0.5, 0.11, sgn);
   }
   // —— 腿：羽毛腿（白，短）+ 黑色细长的胫、跗，黑色“膝”（踝）向后凸，黄色长趾
-  for (const side of ['R', 'L']) {
-    const s = leg[side].sgn, h = [s * HIP[0], HIP[1], HIP[2]], a = [s * ANKLE[0], ANKLE[1], ANKLE[2]], f = [s * FOOT[0], FOOT[1], FOOT[2]];
+  if (!A) for (const side of ['R', 'L']) {
+    const h = LEGS[side].hip, a = LEGS[side].ankle, f = LEGS[side].foot;
     const m = [h[0], h[1] + (a[1] - h[1]) * 0.3, h[2] + (a[2] - h[2]) * 0.3];
     cylBetween(B['hip' + side], h, m, 0.085, 0.05, 7, { color: whiteFn, ao: false });
     cylBetween(B['hip' + side], m, a, 0.032, 0.03, 6, { color: BLACK, ao: false, jitter: 0.02 });
@@ -200,11 +243,20 @@ export function createEgret() {
   group.updateMatrixWorld(true);
   const skeleton = new THREE.Skeleton(bones);
   mesh.bind(skeleton, mesh.matrixWorld);
+  let bodyMesh = null;
+  if (A) {
+    const bm = paintMaterial({ map: A.map, color: 0xffffff, roughness: 1, metalness: 0, side: THREE.DoubleSide }, { space: 'local', scale: 14, strength: 0.1, hue: 0.3, bands: 0.2, levels: 4 });
+    bodyMesh = new THREE.SkinnedMesh(A.geometry, bm);
+    bodyMesh.frustumCulled = false; bodyMesh.castShadow = true;
+    group.add(bodyMesh);
+    bodyMesh.bind(skeleton, mesh.matrixWorld);
+  }
 
   // 背上小狗趴的位置：挂在 body 骨骼下，随身体起伏
   const seat = new THREE.Object3D();
   seat.name = 'egretSeat';
-  seat.position.set(0, 1.34 - BODY_PIVOT[1], -0.1);
+  if (RG) seat.position.set(RG.seat[0] - BODY_PIVOT[0], RG.seat[1] - BODY_PIVOT[1], RG.seat[2] - BODY_PIVOT[2]);
+  else seat.position.set(0, 1.34 - BODY_PIVOT[1], -0.1);
   body.add(seat);
 
   // ================================================================== 动画参数
@@ -251,7 +303,7 @@ export function createEgret() {
   };
   const WALK_TC = 2.2, STANCE = 0.6; // 一个完整步周期（两条腿各迈一步）与支撑相占比
   eg.dims.height = 2.0;
-  eg.dims.length = 1.35;
+  eg.dims.length = RG ? RG.dims.length : 1.35;
   eg.dims.wingspan = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
   eg.dims.stride = eg.walkSpeed * WALK_TC * 0.5;
 
@@ -289,14 +341,18 @@ export function createEgret() {
   }
 
   // ---- 腿 IK 所需常量
-  const L1 = Math.hypot(ANKLE[1] - HIP[1], ANKLE[2] - HIP[2]);
-  const L2 = Math.hypot(FOOT[1] - ANKLE[1], FOOT[2] - ANKLE[2]);
-  const a1r = Math.atan2(-(ANKLE[2] - HIP[2]), -(ANKLE[1] - HIP[1]));
-  const a2r = Math.atan2(-(FOOT[2] - ANKLE[2]), -(FOOT[1] - ANKLE[1]));
-  const hipY = HIP[1] - BODY_PIVOT[1], hipZ = HIP[2];
+  for (const side of ['R', 'L']) {
+    const g = LEGS[side], HIP = g.hip, ANKLE = g.ankle, FOOT = g.foot;
+    leg[side].ik = {
+      L1: Math.hypot(ANKLE[1] - HIP[1], ANKLE[2] - HIP[2]), L2: Math.hypot(FOOT[1] - ANKLE[1], FOOT[2] - ANKLE[2]),
+      a1r: Math.atan2(-(ANKLE[2] - HIP[2]), -(ANKLE[1] - HIP[1])), a2r: Math.atan2(-(FOOT[2] - ANKLE[2]), -(FOOT[1] - ANKLE[1])),
+      hipY: HIP[1] - BODY_PIVOT[1], hipZ: HIP[2] - BODY_PIVOT[2], tpr: g.toe || 0,
+    };
+  }
 
   /** ty,tz：脚尖目标，相对身体枢轴、与世界（root）同向的坐标系；pitch：身体俯仰；tp：趾的世界俯仰 */
   function legIK(lg, ty, tz, pitch, tp) {
+    const K = lg.ik, L1 = K.L1, L2 = K.L2, a1r = K.a1r, a2r = K.a2r, hipY = K.hipY, hipZ = K.hipZ;
     const c = Math.cos(pitch), s = Math.sin(pitch);
     const by = ty * c + tz * s, bz = -ty * s + tz * c; // 转到身体坐标系
     let dy = by - hipY, dz = bz - hipZ;
@@ -310,7 +366,7 @@ export function createEgret() {
     const a2 = Math.atan2(-(bz - az), -(by - ay));
     lg.th.rotation.x = a1 - a1r;
     lg.an.rotation.x = (a2 - a1) - (a2r - a1r);
-    lg.ft.rotation.x = tp - pitch - (a2 - a2r);
+    lg.ft.rotation.x = (tp - K.tpr) - pitch - (a2 - a2r);
   }
 
   const smooth = (x) => x * x * (3 - 2 * x);
@@ -381,6 +437,8 @@ export function createEgret() {
       w.el.rotation.set(0, 0, g * (-lag * cosF * sp * 0.9 + 0.12 * sp));
       w.wr.rotation.set(0, g * (sp * (0.45 * up * (amp > 0.1 ? 1 : 0))), g * (-lag * cosF * sp * 0.9 - 0.1 * sp + 0.04 * sp * Math.sin(tAll * 9)));
     }
+
+    if (A) mesh.visible = sp > 0.04;
 
     // —— 腿（IK）
     const g = P[IX.ground], hipAbs = BODY_PIVOT[1] + bodyY;

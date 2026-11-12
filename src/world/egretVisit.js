@@ -67,7 +67,13 @@ function loadEgretModule() {
   let loaders = {};
   try { loaders = import.meta.glob('./egret.js') || {}; } catch (_) { loaders = {}; }
   const fn = loaders['./egret.js'];
-  _load = fn ? fn().then((m) => (m && typeof m.createEgret === 'function' ? m.createEgret : null)).catch(() => null) : Promise.resolve(null);
+  _load = fn
+    ? fn().then((m) => {
+      if (!m || typeof m.createEgret !== 'function') return null;
+      // 先把导入的白鹭模型加载好（失败也没关系，egret.js 会退回程序化造型）
+      return (typeof m.preloadEgret === 'function' ? m.preloadEgret() : Promise.resolve(false)).then(() => m.createEgret, () => m.createEgret);
+    }).catch(() => null)
+    : Promise.resolve(null);
   return _load;
 }
 
@@ -140,6 +146,8 @@ export function createEgretVisits(ctx) {
     get busy() { return travel.phase === 'board' || travel.phase === 'mount' || travel.phase === 'depart' || travel.phase === 'away' || travel.phase === 'return' || travel.phase === 'dismount'; },
     visits: 0, rides: 0, idle: 0, forceRide: false, noRide: false,
     visitNow, recall, blockPlay, info, debugStart,
+    /** 白鹭模型加载完成（或确定用占位造型）后 resolve */
+    whenReady: () => loadEgretModule().then(() => { loaded = true; }),
     /** 调试 / 测试：当作新的一天（时刻表重新来、今天还没出过门） */
     resetDay() { slotDone.fill(false); wentToday = false; saveAway(false); },
     update,
@@ -152,7 +160,7 @@ export function createEgretVisits(ctx) {
   const pos = new THREE.Vector3(), tan = new THREE.Vector3(), tmp = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
   const seatP = new THREE.Vector3(), seatQ = new THREE.Quaternion(), hopFrom = new THREE.Vector3(), hopTo = new THREE.Vector3(), hopQ = new THREE.Quaternion();
   let spot = null;        // 当前落脚点
-  let stayLeft = 0, sub = 'stand', subT = 0, walkTo = null, decideAt = 0, decided = false, hopT = 0;
+  let stayLeft = 0, sub = 'stand', subT = 0, walkTo = null, decideAt = 0, decided = false, wantRide = false, hopT = 0;
   let recallAsked = false;
 
   function bez(u, out) {
@@ -250,17 +258,24 @@ export function createEgretVisits(ctx) {
     setPhase('stay'); stayLeft = Math.min(stayLeft, 3); sub = 'stand'; subT = 0;
   }
 
-  function canRide() {
-    if (wentToday || travel.noRide) return false;
+  /** 现在为什么不能跟白鹭走（能走则返回空串） */
+  function rideBlock() {
+    if (wentToday) return '今天出过门了';
+    if (travel.noRide) return '这次来访不带狗';
     const h = env.hour;
-    if (h < EGRET.DAY_FROM || h > EGRET.RIDE_LATEST) return false;
-    if (env.isRaining || env.rain > 0.05) return false;
-    if (!brain.canGame() || mover.inKennel || mover.onRamp) return false;
+    if (h < EGRET.DAY_FROM || h > EGRET.RIDE_LATEST) return '时间不对';
+    if (env.isRaining || env.rain > 0.05) return '在下雨';
+    if (mover.inKennel) return '在窝里';
+    if (mover.onRamp) return '在瞭望台上';
+    if (!brain.canGame()) return '正忙着（' + brain.mode + ' / ' + brain.state + '）';
     const r = typeof brain.routine === 'function' ? brain.routine() : null;
-    if (r && (r.mealDue || r.sleepTime || r.evening || r.energy < EGRET.MIN_ENERGY)) return false;
-    if ((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active)) return false;
-    return true;
+    if (r && r.mealDue) return '饭点';
+    if (r && (r.sleepTime || r.evening)) return '该歇着了';
+    if (r && r.energy < EGRET.MIN_ENERGY) return '没精神（' + r.energy.toFixed(2) + '）';
+    if ((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active)) return '在玩小游戏';
+    return '';
   }
+  const canRide = () => rideBlock() === '';
   function rideChance() {
     if (travel.idle < EGRET.BORED_FROM) return 0;
     return EGRET.RIDE_BASE + EGRET.RIDE_BORED * clamp((travel.idle - EGRET.BORED_FROM) / (EGRET.BORED_FULL - EGRET.BORED_FROM), 0, 1);
@@ -310,7 +325,7 @@ export function createEgretVisits(ctx) {
   /** 小狗趴在背上的位置：比座位再靠后一点（别挡住白鹭的脖子） */
   function seatPose() {
     bird.seat.getWorldPosition(seatP); bird.seat.getWorldQuaternion(seatQ);
-    seatP.add(tmp.set(0, 0.02, -0.2).applyQuaternion(seatQ));
+    seatP.add(tmp.set(0, -0.13, -0.3).applyQuaternion(seatQ)); // 肚皮贴着背、整体靠后（别挡住白鹭的脖子）
   }
   function attachDog() {
     bird.group.updateMatrixWorld(true);
@@ -363,7 +378,7 @@ export function createEgretVisits(ctx) {
           settleOnGround();
           setPhase('stay');
           stayLeft = rand(EGRET.STAY[0], EGRET.STAY[1]); sub = 'stand'; subT = rand(1.6, 3); walkTo = null;
-          decideAt = rand(7, 14); decided = false;
+          decideAt = rand(7, 14); decided = false; wantRide = false;
         }
         break;
       }
@@ -391,9 +406,13 @@ export function createEgretVisits(ctx) {
         } else if (sub !== 'walk' && b.state !== 'peck' && b.state !== 'stand') b.setState('stand');
 
         // 要不要带小狗走：落地一会儿后决定一次
-        if (!decided && phT > decideAt && sub !== 'walk') {
-          decided = true;
-          if (canRide() && (travel.forceRide || rng() < rideChance()) && brain.enterGame(controller)) {
+        // 想不想走只掷一次骰子；想走但小狗这会儿腾不出手（叼着垫子、在窝里…）就等等，白鹭走之前有机会再走
+        if (!decided && phT > decideAt) { decided = true; wantRide = travel.forceRide || rng() < rideChance(); }
+        if (decided && wantRide && sub !== 'walk' && stayLeft > 3) {
+          travel.lastBlock = rideBlock();
+          if (travel.lastBlock === '今天出过门了' || travel.lastBlock === '这次来访不带狗' || travel.lastBlock === '时间不对') wantRide = false;
+          else if (canRide() && brain.enterGame(controller)) {
+            wantRide = false;
             const c = island.clampWalkable(b.group.position.x * 0.86, b.group.position.z * 0.86); // 白鹭靠岛心一侧
             mover.goTo(c.x, c.z, { run: true, arriveR: 0.2 });
             b.setState('stand'); sub = 'stand';
@@ -501,7 +520,7 @@ export function createEgretVisits(ctx) {
   function info() {
     return {
       phase: travel.phase, away: travel.away, busy: travel.busy, visits: travel.visits, rides: travel.rides, wentToday,
-      idle: +travel.idle.toFixed(1), chance: +rideChance().toFixed(3), stub: birdIsStub, slots: slots.map((s) => +s.toFixed(2)), slotDone: slotDone.slice(),
+      block: travel.lastBlock || '', idle: +travel.idle.toFixed(1), chance: +rideChance().toFixed(3), stub: birdIsStub, slots: slots.map((s) => +s.toFixed(2)), slotDone: slotDone.slice(),
       bird: bird && bird.group.visible ? { state: bird.state, pos: bird.group.position.toArray().map((v) => +v.toFixed(2)) } : null,
       hint: hint.visible ? hint.text : '', toast: hint.lastToast, dogVisible: dog.group.visible, edge: edge.length,
     };

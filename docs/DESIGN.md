@@ -484,3 +484,12 @@ createBrain(ctx) → { update(dt, env), mode /*'auto'|'fetch'*/, state /*字符�
 4. 技术：程序化建模、顶点色、`paintMaterial`（local 空间）；不引入外部素材；三角形 ≤ 8000，draw call ≤ 12；`update` 内不分配对象；各状态连续跑 600 帧无 NaN、页面无报错。
 5. 截图：`scripts/egret-shot.eval.js` 配合 `scripts/shot.cjs`，能拍每个状态的特写；交付时附 `shots/egret/` 下的截图（站立侧面、行走两帧、啄地、起飞、飞行上下两帧、滑翔、降落），并且在小岛默认全景下（鸟只有几十像素高）剪影仍能认出是白鹭。
 6. 约束：只新增上述文件，不改其他源码；不启动 / 结束桌宠进程，不运行 electron-builder，不写 `dist/`、`release/`。
+
+### 白鹭的外形（更新）
+
+白鹭的身体改用导入的模型：原始文件是用户提供的 `white_egret_model.glb`（约 95 万个三角形、22MB，静态、无骨骼），处理成 `src/assets/egret.glb`（约 1.7 万个三角形、1.2MB）后使用。
+
+- 处理流程见 `scripts/tools/egret-rig.mjs` 顶部的说明：先用 gltf-transform 减面、缩小贴图，再由该脚本换算坐标、按位置给顶点分配骨骼权重（身体 / 脖子 4 节 / 头 / 左右腿各 3 节），关节坐标写在节点的 `extras.rig` 里。
+- `src/world/egret.js` 的 `preloadEgret()` 加载它，`createEgret()` 照着 `extras.rig` 建骨架，动作系统（站立、行走、啄地、起飞、飞行、滑翔、降落）不变。
+- 导入的模型翅膀是收拢的，飞行时展开的翅膀仍是程序生成的，收翅时隐藏。
+- 模型加载失败时退回原来的纯程序化造型。
