@@ -34,6 +34,7 @@ export const FISH = {
   FIGHT_MAX: 5.0,
   FIGHT_MIN: 2.0,           // 再快也要拉满 2 秒才出水（进度条停在 99%，东西还在水里扑腾）
   LAND_DUR: 3.2,
+  LIFT: 0.62,               // 出水的第一段：东西挂在尾巴上被提出水面（之后才甩到岸上；各 landDur 从甩出去那一刻算起）
   MISS_DUR: { scared: 1.3, late: 1.5, pain: 1.9, timeout: 1.6 },
   PRANK_DUR: 5.0,
   PRANK_AT: [1.1, 1.6],     // 大鱼反拉：提竿后多久把小狗拽进水里
@@ -245,7 +246,7 @@ export function createFishSim({ rng = Math.random, casts = FISH.CASTS, forceBott
       sim.score += pts; sim.landed++;
       rec.fight = sim.fightT; rec.outcome = 'landed';
       sim.phase = 'land'; sim.t = 0; sim.struggle = false; sim.warn = false;
-      endDur = def.landDur || FISH.LAND_DUR;
+      endDur = (def.landDur || FISH.LAND_DUR) + FISH.LIFT;
       ev('land', { loot: entry, note });
       return;
     }

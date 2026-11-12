@@ -79,6 +79,12 @@ export function createBrain(ctx) {
       return best;
     },
     needKennel: () => S.rainHold || S.sleepTime,
+    // ---- 作息（跟着岛上的时间，也就是电脑时钟）----
+    energy: 1,        // 精力：清晨和傍晚最高（狗是晨昏活跃的动物），中午最低，晚上慢慢犯困。各行为的权重按它调整
+    justWoke: false,  // 刚睡醒（夜里睡觉结束的那一刻置位）：出窝伸懒腰、抖毛
+    mealDue: null,    // 'breakfast' | 'dinner' | null：到饭点了还没吃
+    thirst: 0,        // 刚吃完 / 刚睡醒：想去喝水
+    markAte() { if (S.mealDue === 'breakfast') ate.b = true; else if (S.mealDue === 'dinner') ate.d = true; S.mealDue = null; },
     matCtl: null,
     age: 0, // brain 已运行的秒数
     exertion: 0, // 0..1 疲劳度：快跑时上升（约 20 秒跑满），停下来后慢慢恢复（约 50 秒）
@@ -96,7 +102,7 @@ export function createBrain(ctx) {
   const pet = createPetMode(S);
   const lookout = A.lookout ? createLookout(S) : null;
   const matB = S.matCtl ? createMatBehaviors(S) : null;
-  const pool = [B.zoomies, B.roll, B.chase, B.sniff, B.wander, B.sit, B.nap, B.drink, B.sunset, B.evening];
+  const pool = [B.zoomies, B.roll, B.chase, B.sniff, B.wander, B.sit, B.nap, B.drink, B.sunset, B.evening, B.wake, B.eat];
   if (lookout) pool.push(lookout);
   if (matB) pool.push(matB.sunbathe, matB.fetchMat);
   let forced = null; // 调试：下一次选择行为时强制选它
@@ -110,6 +116,17 @@ export function createBrain(ctx) {
   let calmT = 0;
   let flinch = 0; // 0 无 / 1 等停稳 / 2 播放中
   let flinchT = 0, flinchCool = 0;
+
+  // ---------------- 作息表 ----------------
+  // 夜里 22:00–6:30 在窝里睡觉；6:30 起床；7:00–9:00 早饭、18:00–19:30 晚饭（各吃一次）；12:15–14:45 午睡；19:30 以后在窝门口歇着。
+  const SLEEP_FROM = 22, WAKE_AT = 6.5, BREAKFAST = [7, 9], DINNER = [18, 19.5], EVENING_FROM = 19.5;
+  // 精力曲线 [小时, 精力]：清晨、傍晚两个高峰，中午低谷
+  const ENERGY = [[0, 0.15], [6.5, 0.5], [7.2, 1.3], [9.5, 1.3], [10.5, 0.95], [12, 0.65], [12.5, 0.3], [14.5, 0.35], [15.2, 0.8], [16.5, 1.25], [18, 1.2], [18.6, 0.6], [19.5, 0.45], [22, 0.2], [24, 0.15]];
+  function energyAt(h) {
+    for (let i = 1; i < ENERGY.length; i++) if (h <= ENERGY[i][0]) { const a = ENERGY[i - 1], b = ENERGY[i]; return a[1] + ((b[1] - a[1]) * (h - a[0])) / Math.max(1e-6, b[0] - a[0]); }
+    return ENERGY[ENERGY.length - 1][1];
+  }
+  const ate = { b: false, d: false }; // 这一顿吃过了没有（离开饭点的时间段就清掉）
 
   // ---------------- 初始摆放（非瞬移：只在创建时） ----------------
   updateConditions(0);
@@ -134,8 +151,21 @@ export function createBrain(ctx) {
       else calmT = 0;
     }
     const h = env.hour;
-    S.sleepTime = h >= 22 || h < 6;
-    S.evening = h >= 19 && h < 22;
+    const wasSleep = S.sleepTime;
+    S.sleepTime = h >= SLEEP_FROM || h < WAKE_AT;
+    if (wasSleep && !S.sleepTime && dt > 0) { S.justWoke = true; S.thirst = 1; }
+    S.evening = h >= EVENING_FROM && h < SLEEP_FROM;
+    S.energy = energyAt(h);
+    const inB = h >= BREAKFAST[0] && h < BREAKFAST[1], inD = h >= DINNER[0] && h < DINNER[1];
+    if (!inB) ate.b = false;
+    if (!inD) ate.d = false;
+    const due = inB && !ate.b ? 'breakfast' : inD && !ate.d ? 'dinner' : null;
+    const bowl = island.bowl;
+    if (bowl) {
+      if (due && !S.mealDue) bowl.setLevel(1);                                  // 到饭点：碗里盛上狗粮
+      else if (!due && bowl.level > 0) bowl.setLevel(bowl.level - dt * 0.5);    // 吃完了 / 过了饭点：碗空了
+    }
+    S.mealDue = due;
   }
 
   function startBehavior(b) {
@@ -280,6 +310,7 @@ export function createBrain(ctx) {
     cur = null;
     brain.state = 'auto:idle';
   };
+  brain.routine = () => ({ energy: S.energy, mealDue: S.mealDue, sleepTime: S.sleepTime, evening: S.evening, rainHold: S.rainHold }); // 作息状态（白鹭来访等机制读它）
   brain.pet = pet; // 调试/测试用：当前的摸摸反应
   brain.mover = mover; // 调试/测试用：只读观察
   brain.weights = () => pool.map((b) => [b.name, +b.weight().toFixed(2)]); // 调试：当前各行为权重

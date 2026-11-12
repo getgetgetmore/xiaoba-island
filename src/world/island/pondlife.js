@@ -275,7 +275,7 @@ function crabGeometry() {
   return _crabGeo;
 }
 
-export const CRAB_STATES = ['idle', 'walk', 'pinch', 'hide'];
+export const CRAB_STATES = ['idle', 'walk', 'pinch', 'hide', 'grip']; // grip：+X 那只大钳举起夹紧（钓鱼时夹住小狗尾巴吊着）
 let _crabId = 0;
 
 export function createCrab() {
@@ -294,7 +294,7 @@ export function createCrab() {
       if (!(dt > 0)) return;
       t += dt;
       const st = crab.state;
-      amp = damp(amp, st === 'walk' ? 1 : 0, 10, dt);
+      amp = damp(amp, st === 'walk' ? 1 : st === 'grip' ? 0.7 : 0, 10, dt);
       phase += dt * 8.5 * crab.walkRate * amp;
       const c = Math.cos(phase), s = Math.sin(phase), d = crab.dir >= 0 ? 1 : -1;
       // A 组与 B 组反相；抬脚发生在“向前摆”的那半周期（随方向而变）
@@ -302,11 +302,12 @@ export function createCrab() {
       inf[2] = -amp * c; inf[3] = amp * Math.max(0, d * s);
       let uL = 0, uR = 0, oL = 0, oR = 0;
       if (st === 'pinch') { uL = 1; uR = 1; oL = 0.5 + 0.5 * Math.sin(t * 8.5); oR = 0.5 + 0.5 * Math.sin(t * 8.5 + 1.6); }
+      else if (st === 'grip') { uL = 1; oL = 0.14 + 0.06 * Math.sin(t * 15); uR = 0.55; oR = 0.5 + 0.5 * Math.sin(t * 9); }
       else if (st === 'idle') { oL = 0.12 * (0.5 + 0.5 * Math.sin(t * 1.3)); oR = 0.12 * (0.5 + 0.5 * Math.sin(t * 1.1 + 2)); }
       else if (st === 'walk') { uL = 0.25; uR = 0.25; }
       upL = damp(upL, uL, 12, dt); upR = damp(upR, uR, 12, dt); opL = damp(opL, oL, 20, dt); opR = damp(opR, oR, 20, dt);
       inf[4] = upL; inf[5] = upR; inf[6] = opL; inf[7] = opR;
-      inf[8] = (st === 'hide' ? 0.2 : 1) * Math.sin(t * (st === 'pinch' ? 4 : 1.9)) * 0.8;
+      inf[8] = (st === 'hide' ? 0.2 : 1) * Math.sin(t * (st === 'pinch' || st === 'grip' ? 4 : 1.9)) * 0.8;
       tuck = damp(tuck, st === 'hide' ? 1 : clamp(crab.lurk * 0.6), 9, dt);
       inf[9] = tuck;
       lurkS = damp(lurkS, st === 'hide' ? 1 : crab.lurk, 8, dt);

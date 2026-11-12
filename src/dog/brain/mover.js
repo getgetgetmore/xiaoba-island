@@ -1,4 +1,4 @@
-// 狗狗移动控制器：加减速、转向速率上限、先转身再加速、绕开障碍圆、进出狗窝直线段。
+// 狗狗移动控制器：加减速、转向速率上限、先转身再加速、栅格寻路（A*）绕开障碍、进出狗窝直线段。
 // 只通过 island 契约（heightAt / isWalkable / clampWalkable / obstacles / anchors）读取世界信息。
 import { clamp, damp, moveTowards, wrapAngle, angleDiff, smoothstep } from '../../core/util.js';
 
@@ -36,6 +36,125 @@ export function createMover(ctx, dog) {
   let curGait = null;
   let slopePitch = 0, lastDt = 1 / 30;
 
+  // ------------------------------------------------------------------ 路线规划（栅格 A*）
+  // 小岛很小、障碍是固定的：把它铺成 0.25 一格的栅格。能站的格子 = isWalkable（gridFree）；其中离每个障碍圆还有 PAD 以上的算“宽敞”（gridOpen）。
+  // 贴着障碍的窄道可以走，但代价高，而且不能在里面抄直线近路。
+  // goTo 时在栅格上搜一条最短路（贴着障碍的格子代价略高，路线自然离障碍远一点），再用“能直接看到就连直线”把它拉直成几个路点。
+  // 老办法是走一步看一步、见到障碍就贴着绕，在狗窝 / 池塘 / 坡道这些挨在一起的障碍之间容易钻进夹角里出不来。
+  const CELL = 0.25, GR = 9.5, GN = Math.round((2 * GR) / CELL) + 1, PAD = 0.14;
+  let gridFree = null, gridOpen = null, gridCost = null, gScore = null, came = null, stamp = null, closed = null, planId = 0;
+  const gi = (v) => Math.round((v + GR) / CELL), gv = (i) => -GR + i * CELL;
+  function buildGrid() {
+    gridFree = new Uint8Array(GN * GN); gridOpen = new Uint8Array(GN * GN); gridCost = new Float32Array(GN * GN);
+    gScore = new Float32Array(GN * GN); came = new Int32Array(GN * GN); stamp = new Uint32Array(GN * GN); closed = new Uint32Array(GN * GN);
+    const obs = island.obstacles;
+    for (let iz = 0; iz < GN; iz++) for (let ix = 0; ix < GN; ix++) {
+      const x = gv(ix), z = gv(iz);
+      // 格子中心和四周一小圈都能站才算数：只有一条缝宽的“通道”实际走不过去（一步就踩出界），不当作路
+      const E = 0.13;
+      let ok = island.isWalkable(x, z) && island.isWalkable(x + E, z) && island.isWalkable(x - E, z) && island.isWalkable(x, z + E) && island.isWalkable(x, z - E);
+      gridFree[iz * GN + ix] = ok ? 1 : 0;
+      if (ok) for (let k = 0; k < obs.length; k++) if (Math.hypot(x - obs[k].x, z - obs[k].z) < obs[k].r + PAD) { ok = false; break; }
+      gridOpen[iz * GN + ix] = ok ? 1 : 0;
+    }
+    for (let iz = 0; iz < GN; iz++) for (let ix = 0; ix < GN; ix++) {
+      if (!gridFree[iz * GN + ix]) continue;
+      let near = 3;
+      for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+        const jx = ix + dx, jz = iz + dz;
+        if (jx < 0 || jz < 0 || jx >= GN || jz >= GN || !gridFree[jz * GN + jx]) near = Math.min(near, Math.max(Math.abs(dx), Math.abs(dz)));
+      }
+      gridCost[iz * GN + ix] = (near === 1 ? 1.6 : near === 2 ? 0.5 : 0) + (gridOpen[iz * GN + ix] ? 0 : 3);
+    }
+  }
+  const freeAt = (x, z) => { const ix = gi(x), iz = gi(z); return ix >= 0 && iz >= 0 && ix < GN && iz < GN && gridOpen[iz * GN + ix] === 1; };
+  /** 两点之间能不能走直线（沿途每半格取一个点，都落在能站的格子里） */
+  function los(x0, z0, x1, z1) {
+    const d = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(d / (CELL * 0.5)));
+    for (let k = 0; k <= n; k++) { const u = k / n; if (!freeAt(x0 + (x1 - x0) * u, z0 + (z1 - z0) * u)) return false; }
+    return true;
+  }
+  /** 离 (x, z) 最近的能站的格子（2.5 以内），没有则 -1 */
+  function nearestFree(x, z) {
+    const cx = gi(x), cz = gi(z);
+    let best = -1, bd = 1e9;
+    for (let r = 0; r <= 10 && best < 0; r++) {
+      for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const ix = cx + dx, iz = cz + dz;
+        if (ix < 0 || iz < 0 || ix >= GN || iz >= GN || !gridFree[iz * GN + ix]) continue;
+        const d = Math.hypot(gv(ix) - x, gv(iz) - z);
+        if (d < bd) { bd = d; best = iz * GN + ix; }
+      }
+    }
+    return best;
+  }
+  const heap = [];
+  function heapPush(i, fs) { heap.push(i); let c = heap.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (fs[heap[p]] <= fs[heap[c]]) break; const t = heap[p]; heap[p] = heap[c]; heap[c] = t; c = p; } }
+  function heapPop(fs) {
+    const top = heap[0], last = heap.pop();
+    if (heap.length) {
+      heap[0] = last; let p = 0;
+      for (;;) { const l = 2 * p + 1, r = l + 1; let m = p; if (l < heap.length && fs[heap[l]] < fs[heap[m]]) m = l; if (r < heap.length && fs[heap[r]] < fs[heap[m]]) m = r; if (m === p) break; const t = heap[p]; heap[p] = heap[m]; heap[m] = t; p = m; }
+    }
+    return top;
+  }
+  let fScore = null;
+  /** 规划从 (x0, z0) 到 (x1, z1) 的路线：返回路点数组 [[x, z], …]（最后一个是目标本身），规划不出来返回 null */
+  function plan(x0, z0, x1, z1) {
+    if (!gridFree) { buildGrid(); fScore = new Float32Array(GN * GN); }
+    if (freeAt(x0, z0) && los(x0, z0, x1, z1)) return [[x1, z1]]; // 大多数时候：直接走过去
+    const sI = nearestFree(x0, z0), gI = nearestFree(x1, z1);
+    if (sI < 0 || gI < 0) return null;
+    const gx = gI % GN, gz = (gI / GN) | 0;
+    planId++; heap.length = 0;
+    gScore[sI] = 0; stamp[sI] = planId; came[sI] = -1; fScore[sI] = 0; heapPush(sI, fScore);
+    let found = false, bestI = sI, bestH = 1e9;
+    while (heap.length) {
+      const cur = heapPop(fScore);
+      if (closed[cur] === planId) continue;
+      closed[cur] = planId;
+      if (cur === gI) { found = true; break; }
+      const cx = cur % GN, cz = (cur / GN) | 0;
+      const hh = Math.hypot(cx - gx, cz - gz);
+      if (hh < bestH) { bestH = hh; bestI = cur; } // 记下离目标最近的、走得到的格子
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue;
+        const nx = cx + dx, nz = cz + dz;
+        if (nx < 0 || nz < 0 || nx >= GN || nz >= GN) continue;
+        const ni = nz * GN + nx;
+        if (!gridFree[ni] || closed[ni] === planId) continue;
+        if (dx && dz && (!gridFree[cz * GN + nx] || !gridFree[nz * GN + cx])) continue; // 不从两个障碍格的对角缝里钻过去
+        const g = gScore[cur] + (dx && dz ? 1.4142 : 1) * (1 + gridCost[ni]);
+        if (stamp[ni] === planId && g >= gScore[ni]) continue;
+        stamp[ni] = planId; gScore[ni] = g; came[ni] = cur;
+        fScore[ni] = g + Math.hypot(nx - gx, nz - gz);
+        heapPush(ni, fScore);
+      }
+    }
+    // 目标被障碍围死（走不到）：走到能到的最近处为止
+    const cells = [];
+    for (let c = found ? gI : bestI; c >= 0; c = came[c]) cells.push([gv(c % GN), gv((c / GN) | 0)]);
+    cells.reverse();
+    // 拉直：从当前点出发，能直接看到的最远一个路点就直接连过去
+    const pts = [[x0, z0]].concat(cells), out = [];
+    for (let i = 0; i < pts.length - 1; ) {
+      let j = pts.length - 1;
+      while (j > i + 1 && !los(pts[i][0], pts[i][1], pts[j][0], pts[j][1])) j--;
+      out.push(pts[j]); i = j;
+    }
+    if (!found) { if (!out.length) out.push([x0, z0]); out.partial = true; return out; }
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(last[0] - x1, last[1] - z1) > 0.02) out.push([x1, z1]); // 目标本身可能在留边的范围里（窝门口、喝水点）：最后一小段直接走过去
+    return out;
+  }
+  let path = null, pi = 0, needPlan = false, replans = 0;
+  /** 卡住 / 长时间没进展：先按当前位置重新规划一次，还不行再放弃 */
+  function retryOrGiveUp() {
+    if (goal.kind === 'nav' && replans < 1 && !(path && path.partial)) { replans++; needPlan = true; path = null; progBest = 1e9; progT = 0; stuckT = 0; }
+    else giveUp();
+  }
+
   function place(x, z, heading) {
     mover.x = x; mover.z = z;
     mover.heading = heading;
@@ -69,6 +188,7 @@ export function createMover(ctx, dog) {
     facing = NaN;
     stuckT = 0;
     progBest = 1e9; progT = 0;
+    needPlan = true; path = null; replans = 0;
   }
 
   /** 直线走向目标，忽略障碍与 walkable（进出狗窝用）。 */
@@ -131,6 +251,7 @@ export function createMover(ctx, dog) {
       resume = { x: goal.x, z: goal.z, arriveR: goal.arriveR, through: goal.through, vmax: goal.vmax };
       goal.x = lw.x; goal.z = lw.z; goal.arriveR = 0.8; goal.through = false;
       stuckT = 0; progBest = 1e9; progT = 0; avoidIdx = -1;
+      needPlan = true; path = null;
       return;
     }
     pending = null; onDetour = false; resume = null;
@@ -197,10 +318,28 @@ export function createMover(ctx, dog) {
         else if (mover.onRamp && goal.kind === 'nav' && lk) { tx = lk.base.x; tz = lk.base.z; exiting = true; exitRamp = true; }
         const straight = exiting || goal.kind === 'straight';
         if (straight) freePass = true;
+        // 普通寻路：沿规划好的路点走；规划不出来（起点 / 终点被围死）才退回到“见障碍就绕”的老办法
+        let viaPath = false, remain = 0, turnNext = 0;
+        if (!straight) {
+          if (needPlan) { needPlan = false; path = plan(mover.x, mover.z, goal.x, goal.z); pi = 0; }
+          if (path) {
+            // 已经能直接看到后面的路点（或者这个路点已经踩到了）就往后跳：拐弯处自然切角
+            while (pi < path.length - 1 && (Math.hypot(path[pi][0] - mover.x, path[pi][1] - mover.z) < 0.28 || los(mover.x, mover.z, path[pi + 1][0], path[pi + 1][1]))) pi++;
+            if (pi < path.length - 1) {
+              tx = path[pi][0]; tz = path[pi][1]; viaPath = true;
+              turnNext = Math.abs(angleDiff(Math.atan2(tx - mover.x, tz - mover.z), Math.atan2(path[pi + 1][0] - tx, path[pi + 1][1] - tz)));
+              for (let k = pi; k < path.length - 1; k++) remain += Math.hypot(path[k + 1][0] - path[k][0], path[k + 1][1] - path[k][1]);
+            } else if (path.partial) {
+              // 目标走不到：到了能到的最近处就放弃（不再绕道重试）
+              tx = path[pi][0]; tz = path[pi][1]; viaPath = true;
+              if (Math.hypot(tx - mover.x, tz - mover.z) < 0.3) { detoured = true; giveUp(); }
+            }
+          }
+        }
         const dx = tx - mover.x, dz = tz - mover.z;
         const dist = Math.hypot(dx, dz);
         const arriveR = exiting ? 0.2 : goal.arriveR;
-        if (dist < arriveR) {
+        if (!viaPath && dist < arriveR) {
           if (exiting) {
             if (exitRamp) mover.onRamp = false; else mover.inKennel = false;
           } else if (onDetour && resume) {
@@ -208,6 +347,7 @@ export function createMover(ctx, dog) {
             goal.x = resume.x; goal.z = resume.z; goal.arriveR = resume.arriveR; goal.through = resume.through; goal.vmax = resume.vmax;
             onDetour = false; resume = null;
             stuckT = 0; progBest = 1e9; progT = 0; avoidIdx = -1;
+            needPlan = true; path = null;
           } else if (pending && goal.kind === 'nav') {
             const p = pending;
             pending = null;
@@ -222,21 +362,30 @@ export function createMover(ctx, dog) {
           }
         } else {
           const dirH = Math.atan2(dx, dz);
-          const steerH = straight ? dirH : steer(dirH, dist);
+          const steerH = straight || path ? dirH : steer(dirH, dist);
           // 倒退时：行进方向不变，身体朝向取反方向
           const faceH = mover.reverse ? steerH + Math.PI : steerH;
           const err = Math.abs(angleDiff(mover.heading, faceH));
           const vmax = exiting ? Math.min(goal.vmax, exitRamp ? 1.7 : 1.6) : goal.vmax;
-          vdes = goal.through && !straight ? vmax : Math.min(vmax, 0.15 + 2.4 * dist);
-          const gate = goal.through && !straight ? clamp(1 - err / 1.6, 0.55, 1) : smoothstep(1.5, 0.4, err);
+          let gate;
+          if (viaPath) {
+            // 中途的路点：不停下，只在要拐急弯时放慢；方向差太多（刚起步背对着路）就先转身再走
+            vdes = vmax;
+            if (dist < 0.35 + turnNext * 0.55) vdes = Math.min(vdes, Math.max(1.0, vmax * (1 - turnNext / 2.4)));
+            gate = err > 1.2 ? smoothstep(1.5, 0.4, err) : clamp(1 - err / 1.6, 0.5, 1);
+          } else {
+            vdes = goal.through && !straight ? vmax : Math.min(vmax, 0.15 + 2.4 * dist);
+            gate = goal.through && !straight ? clamp(1 - err / 1.6, 0.55, 1) : smoothstep(1.5, 0.4, err);
+          }
           vdes *= gate;
           desiredHeading = faceH;
           // 卡住检测：想走但长时间没速度
           if (mover.speed < 0.12 && err < 0.5) stuckT += dt; else stuckT = 0;
-          if (stuckT > 1.5) { stuckT = 0; giveUp(); }
+          if (stuckT > 1.5) { stuckT = 0; retryOrGiveUp(); }
           if (!straight) {
-            if (dist < progBest - 0.08) { progBest = dist; progT = 0; } else progT += dt;
-            if (progT > 4) { progT = 0; giveUp(); }
+            const left = dist + remain; // 沿路线还剩多远（绕着障碍走时，到目标的直线距离不一定在变近）
+            if (left < progBest - 0.08) { progBest = left; progT = 0; } else progT += dt;
+            if (progT > 4) { progT = 0; retryOrGiveUp(); }
           }
         }
       } else if (Number.isFinite(facing)) {

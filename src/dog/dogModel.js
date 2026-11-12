@@ -80,9 +80,11 @@ export function createDog(ctx) {
     speed: 0,
     /** 外部钩子（钓鱼小游戏写入，默认 0 = 与没有这个钩子时完全一致）：
      *  tailDrop 0..1：把尾巴从背上放下来，笔直地向身后下方垂下（坐着时垂进水里）；
-     *  tailTug -1..1：尾巴被拽动——正值 = 绷直并抖动（越大越猛），负值 = 松垮垮地晃。 */
+     *  tailTug -1..1：尾巴被拽动——正值 = 绷直并抖动（越大越猛），负值 = 松垮垮地晃；
+     *  tailLift 0..1：把尾巴绷直了向后上方扬起来（1 = 接近竖直；钓鱼时把挂在尾巴梢上的东西吊出水面）。优先于 tailDrop。 */
     tailDrop: 0,
     tailTug: 0,
+    tailLift: 0,
     /** 耳朵竖起 0..1（钓鱼：鱼咬钩了）。默认 0 = 不影响。 */
     earPerk: 0,
     size: { length: 0.85, height: 0.83, radius: 0.45 }, // 实测：站立体长（鼻尖→臀）≈0.83、耳尖高≈0.83
@@ -126,7 +128,7 @@ export function createDog(ctx) {
   let carryS = 0;
   let pantS = 0; // 喘气程度（平滑后）
   let blissS = 0; // 被摸摸时的享受程度（平滑后）
-  let tailDropS = 0, tugS = 0, tugPhase = 0, perkS = 0; // 尾巴 / 耳朵钩子（平滑后）
+  let tailDropS = 0, tugS = 0, tugPhase = 0, perkS = 0, tailLiftS = 0; // 尾巴 / 耳朵钩子（平滑后）
   let prevY = DIM.BODY_Y, prevVy = 0, accY = 0;
   let prevHeading = 0, yawRate = 0, headingInit = false;
   let rainS = 0, brV = 0, cheekV = 0, flickV = 0;
@@ -259,6 +261,19 @@ export function createDog(ctx) {
       o[I.tailBase] += (down - o[I.tailBase]) * k - 0.16 * Math.max(0, tg) + 0.1 * Math.max(0, tg) * Math.sin(tugPhase);
       o[I.tailCurl] += (0.0 - o[I.tailCurl]) * k + 0.14 * Math.max(0, -tg);
       o[I.tailSide] += (0.0 - o[I.tailSide]) * k + 0.26 * tg * Math.sin(tugPhase * 0.83);
+      o[I.wagAmp] *= 1 - k;
+    }
+    // 尾巴钩子：tailLift 把尾巴绷直了向后上方扬起（吊着东西，带一点吃力的抖）
+    tailLiftS += (clamp(fin(dog.tailLift, 0), 0, 1) - tailLiftS) * dampK(11, dt);
+    if (tailLiftS < 0.001) tailLiftS = 0;
+    if (tailLiftS > 0) {
+      const k = ss01(tailLiftS);
+      const pitch = o[I.bodyPitch] + o[I.hipsPitch] + (group.rotation.x || 0);
+      const upAng = -0.42 - pitch; // 方向角：0 = 竖直向上，-π/2 = 水平向后
+      tugPhase += dt * 16;
+      o[I.tailBase] += (upAng - o[I.tailBase]) * k + 0.05 * k * Math.sin(tugPhase);
+      o[I.tailCurl] += (0.0 - o[I.tailCurl]) * k;
+      o[I.tailSide] += (0.0 - o[I.tailSide]) * k + 0.1 * k * Math.sin(tugPhase * 0.7);
       o[I.wagAmp] *= 1 - k;
     }
     o[I.headPitch] += headLag;

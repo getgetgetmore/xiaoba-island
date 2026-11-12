@@ -10,6 +10,7 @@ import { createPetting } from './interaction/petting.js';
 import { createPainterly } from './render/painterly.js';
 import { createWalkGame } from './minigame/walk.js';
 import { createFishing } from './minigame/fishing.js';
+import { createEgretVisits } from './world/egretVisit.js';
 
 const params = parseParams();
 const errors = [];
@@ -29,6 +30,7 @@ const ctx = {
 };
 let game = null; // 遛狗小游戏（boot 里创建）；game.active 时主循环改走小游戏
 let fishing = null; // 钓鱼小游戏（boot 里创建）；不换场景、不暂停岛的模拟，只接管镜头取景、小狗和指针交互
+let travel = null; // 白鹭来访 / 乘鹭出门（boot 里创建）
 const fishingOn = () => !!(fishing && fishing.active);
 
 // ---------------- 调试入口（尽早挂出，装载期间也能读 errors） ----------------
@@ -92,6 +94,7 @@ let viewW = 1, viewH = 1;
 
 function computeFocusGoal(name) {
   const g = { ...DEFAULT_VIEW, vy: 0 };
+  if (name && typeof name === 'object') return { ...g, ...name }; // 调试 / 录制：直接给出取景参数 { tx, ty, tz, R, vy, pitch, az }
   const a = ctx.island && ctx.island.anchors;
   if (name === 'dog' && ctx.dog) {
     const p = ctx.dog.group.position;
@@ -413,6 +416,10 @@ async function boot() {
   try {
     if (ctx.dog && ctx.island && ctx.brain && ctx.brain.enterGame) { fishing = createFishing(ctx); ctx.fishing = fishing; pet.fishing = fishing; }
   } catch (e) { recordError(errors, 'fishing', 'create', e); fishing = null; ctx.fishing = null; }
+  // 白鹭来访 / 乘鹭出门（默认机制）
+  try {
+    if (ctx.dog && ctx.island && ctx.brain && ctx.brain.enterGame) { travel = createEgretVisits(ctx); ctx.travel = travel; pet.travel = travel; ctx.scene.add(travel.group); }
+  } catch (e) { recordError(errors, 'travel', 'create', e); travel = null; ctx.travel = null; }
 
   // brain=off / action=xxx：狗站在草坪中心，朝向镜头偏 35°
   if (!ctx.brain && ctx.dog && ctx.island) {
@@ -442,6 +449,8 @@ async function boot() {
     stepModules(dt);
     // 钓鱼：岛的模拟照常运行（上面的 stepModules）；小狗的行为由 brain 的 game 模式交给钓鱼模块，这里更新表现（浮漂、鱼线、水花、HUD）
     if (fishing) { try { fishing.update(dt); } catch (e) { recordError(errors, 'fishing', 'update', e); if (fishing.active) { try { fishing.abort(); } catch (_) { /* ignore */ } } } }
+    // 白鹭：在 brain 之后更新（小狗趴在白鹭背上时，位置由它覆盖）
+    if (travel) { try { travel.update(dt); } catch (e) { recordError(errors, 'travel', 'update', e); travel = null; ctx.travel = null; if (ctx.dog) ctx.dog.group.visible = true; if (ctx.brain && ctx.brain.mode === 'game') ctx.brain.exitGame(); } }
     // 动作预览：一次性动作播完后停 0.8 秒再重播
     if (params.action && ctx.dog && ctx.dog.actions.includes(params.action)) {
       const d = ctx.dog;
@@ -523,6 +532,7 @@ async function boot() {
     game.start({ seed: params.seed, skipCountdown: params.gameT !== null, ff: params.gameT || 0, autopilot: params.gameT !== null });
     render();
   }
+  if (params.egret && travel) { travel.debugStart(params.egret); }
   if (params.game === 'fishing' && fishing) {
     // 调试 / 截图：game=fishing 自动开始（小狗直接就位：坐在水边、尾巴入水）
     fishing.start({ seed: params.seed, instant: true });

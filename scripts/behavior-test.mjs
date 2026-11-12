@@ -209,9 +209,9 @@ async function testC() {
   const r2 = run(w2, 60, { until: () => distTo(w2.ctx, a.kennelInside) < 0.4 && w2.ctx.dog.action === 'sleep' });
   report('c4 以 hour=2 启动：60s 内 sleep', r2.hit, `耗时 ${f2(r2.t)}s`);
   // 清晨出窝
-  w2.ctx.env.setHour(6.2);
+  w2.ctx.env.setHour(6.7);
   const r3 = run(w2, 30, { until: () => distTo(w2.ctx, a.kennelInside) > 1.2 });
-  report('c5 hour=6.2：30s 内出窝', r3.hit, `耗时 ${f2(r3.t)}s, 经历动作 [${[...w2.rec.actions].join(',')}]`);
+  report('c5 hour=6.7（6:30 起床）：30s 内出窝', r3.hit, `耗时 ${f2(r3.t)}s, 经历动作 [${[...w2.rec.actions].join(',')}]`);
 }
 
 // ---------------------------------------------------------------- d) 点击互动

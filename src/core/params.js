@@ -19,6 +19,7 @@ export function defaultParams() {
     backdrop: null, // 背景画面：null = 按窗口大小自动（小窗口只留小岛），0 = 始终只留小岛，1 = 始终完整画面
     game: null, // 调试：game=walk | fishing 启动后自动开始遛狗 / 钓鱼小游戏
     gameT: null, // 调试：gameT=<秒> 把游戏时间快进到指定秒数（自动驾驶，只在带 game 参数时生效）
+    egret: null, // 调试：egret=visit 白鹭现在来一趟 | ride 来了并带小狗出门 | away 直接进入“小狗出门了”的状态
   };
 }
 
@@ -64,6 +65,7 @@ export function parseParams(search) {
   else if (q.get('backdrop') === '1') out.backdrop = 1;
   if (q.get('game') === 'walk') out.game = 'walk';
   else if (q.get('game') === 'fishing') out.game = 'fishing';
+  if (['visit', 'ride', 'away'].includes(q.get('egret'))) out.egret = q.get('egret');
   if (q.has('gameT')) {
     const gt = parseFloat(q.get('gameT'));
     if (Number.isFinite(gt) && gt >= 0) out.gameT = Math.min(gt, 179.99);

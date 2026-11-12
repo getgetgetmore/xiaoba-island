@@ -6,38 +6,13 @@
 import * as THREE from 'three';
 import { paintMaterial } from '../../core/paint.js';
 import { part, mergeParts, G, tube } from '../walk/geo.js';
+import { createFishModel } from './fishModel.js';
 
 const TAU = Math.PI * 2;
 const mat = () => paintMaterial({ vertexColors: true, roughness: 1 }, { space: 'local', scale: 14, strength: 0.16, hue: 0.4, bands: 0.3, levels: 4 });
 const ell = (rx, ry, rz, color, p = [0, 0, 0], r = [0, 0, 0]) => part(G.sphere(1, 12, 9), color, { p, r, s: [rx, ry, rz], ao: 0 });
 
 // ---------------------------------------------------------------- 各种造型
-function goldfishParts(k = 1, [back, belly, fin, tipc] = [0xf2541d, 0xf98a2e, 0xf88a36, 0xfcb878]) {
-  const P = [];
-  P.push(ell(0.07 * k, 0.08 * k, 0.17 * k, back));
-  P.push(ell(0.058 * k, 0.05 * k, 0.15 * k, belly, [0, -0.03 * k, 0.005 * k]));
-  P.push(ell(0.06 * k, 0.066 * k, 0.078 * k, back, [0, 0, 0.14 * k]));
-  P.push(part(G.cone(0.1 * k, 0.17 * k, 6), fin, { p: [0, 0, -0.27 * k], r: [Math.PI / 2, 0, 0], s: [1, 1, 0.2], ao: 0 })); // 尾鳍：宽扇
-  P.push(part(G.cone(0.07 * k, 0.1 * k, 5), tipc, { p: [0, 0, -0.36 * k], r: [Math.PI / 2, 0, 0], s: [1, 1, 0.18], ao: 0 }));
-  P.push(part(G.cone(0.05 * k, 0.1 * k, 4), fin, { p: [0, 0.1 * k, -0.02 * k], r: [-0.5, 0, 0], s: [0.3, 1, 1], ao: 0 })); // 背鳍
-  for (const s of [1, -1]) {
-    P.push(part(G.cone(0.035 * k, 0.09 * k, 4), fin, { p: [0.08 * k * s, -0.03 * k, 0.04 * k], r: [1.2, 0, -1.2 * s], s: [1, 1, 0.25], ao: 0 })); // 胸鳍
-    P.push(ell(0.016 * k, 0.016 * k, 0.016 * k, 0xf2c14e, [0.05 * k * s, 0.03 * k, 0.17 * k]));
-    P.push(ell(0.01 * k, 0.01 * k, 0.01 * k, 0x1f1a17, [0.058 * k * s, 0.032 * k, 0.178 * k]));
-  }
-  return P;
-}
-function koiParts() {
-  const k = 1.5;
-  const P = goldfishParts(k, [0xf3b52c, 0xf9d878, 0xf7c94a, 0xfde8a0]);
-  // 白色、橘红色的花斑 + 金色的亮点
-  P.push(ell(0.05 * k, 0.03 * k, 0.07 * k, 0xfff4dd, [0.012 * k, 0.062 * k, 0.03 * k]));
-  P.push(ell(0.045 * k, 0.026 * k, 0.06 * k, 0xfff4dd, [-0.018 * k, 0.058 * k, -0.1 * k]));
-  P.push(ell(0.04 * k, 0.02 * k, 0.05 * k, 0xee5a2a, [0.0, 0.065 * k, 0.11 * k]));
-  P.push(ell(0.032 * k, 0.018 * k, 0.04 * k, 0xee5a2a, [0.02 * k, 0.052 * k, -0.03 * k]));
-  for (const s of [1, -1]) P.push(tube([0.03 * k * s, -0.01 * k, 0.21 * k], [0.07 * k * s, -0.05 * k, 0.26 * k], 0.006 * k, 0xf6e6b0, 4)); // 胡须
-  return P;
-}
 function weedParts() {
   const P = [];
   const cols = [0x3f8a3a, 0x5fae4a, 0x2f7a3a, 0x78bf55, 0x4a9a44];
@@ -83,21 +58,6 @@ function pebbleParts() {
     ell(0.07, 0.04, 0.05, 0xd2d9da, [-0.03, 0.14, 0.01]),
     ell(0.05, 0.03, 0.04, 0x7c8a90, [-0.16, 0.03, -0.07]),
   ];
-}
-function loachParts() {
-  const P = [];
-  const n = 9;
-  for (let i = 0; i < n; i++) {
-    const t = i / (n - 1), z = 0.27 - t * 0.56, x = Math.sin(t * 5.2) * 0.04;
-    const r = 0.034 * (1 - 0.55 * t * t) + (i === 0 ? -0.004 : 0);
-    P.push(ell(r, r * 0.95, 0.045, i % 3 === 1 ? 0xb39463 : 0xc2a574, [x, r, z]));
-    P.push(ell(r * 0.7, r * 0.45, 0.04, 0xf1e4bf, [x, r * 0.5, z]));
-  }
-  P.push(ell(0.02, 0.016, 0.018, 0x2a1f18, [0.022, 0.05, 0.27]));
-  P.push(ell(0.02, 0.016, 0.018, 0x2a1f18, [-0.022, 0.05, 0.27]));
-  for (const s of [1, -1]) P.push(tube([0.015 * s, 0.025, 0.31], [0.04 * s, 0.02, 0.36], 0.004, 0xc8b48a, 4));
-  P.push(part(G.cone(0.05, 0.1, 4), 0x8c7452, { p: [0, 0.03, -0.31], r: [-Math.PI / 2, 0, 0], s: [1, 1, 0.2], ao: 0 }));
-  return P;
 }
 function shellParts(color, ridge, inner) {
   // 本地：铰链在 z = -0.16、y = 0.0；壳向 +Z 张开
@@ -182,28 +142,18 @@ export function createLootKit() {
     group.name = 'loot-' + id;
     const o = { id, group, state: '', t: 0, extra: {}, update() {}, setState(s) { o.state = s; } };
     switch (id) {
-      case 'goldfish': {
-        const m = mesh(G0('gf', () => mergeParts(goldfishParts(), { aoH: 0 })));
-        m.position.y = 0.09; group.add(m);
-        o.update = (dt) => { o.t += dt; const f = o.state === 'flop' ? 1 : o.state === 'swim' ? 0.4 : 0; m.rotation.z = Math.sin(o.t * 22) * 0.9 * f; m.rotation.y = Math.sin(o.t * 15) * 0.3 * f; m.position.y = 0.09 + Math.abs(Math.sin(o.t * 11)) * 0.05 * f; };
-        break;
-      }
-      case 'koi': {
-        const m = mesh(G0('koi', () => mergeParts(koiParts(), { aoH: 0 })));
-        m.position.y = 0.13; group.add(m);
-        o.update = (dt) => { o.t += dt; const f = o.state === 'flop' ? 1 : 0; m.rotation.z = Math.sin(o.t * 18) * 0.7 * f; m.rotation.y = Math.sin(o.t * 12) * 0.35 * f; m.position.y = 0.13 + Math.abs(Math.sin(o.t * 9)) * 0.06 * f; };
+      case 'goldfish': case 'koi': case 'loach': {
+        // 完整的鱼模型（fishModel.js）：身体会弯——在水里摆尾、上岸后侧躺着卷身拍尾
+        const f = createFishModel(id, lootMat);
+        group.add(f.mesh);
+        o.extra = { fish: f };
+        o.update = (dt) => { o.t += dt; f.update(dt, o.state); };
         break;
       }
       case 'weed': group.add(mesh(G0('weed', () => mergeParts(weedParts(), { aoH: 0.3 })))); break;
       case 'lotusLeaf': group.add(mesh(G0('leaf', () => mergeParts(leafParts(), { aoH: 0 })))); break;
       case 'lotusPod': group.add(mesh(G0('pod', () => mergeParts(podParts(), { aoH: 0 })))); break;
       case 'pebble': group.add(mesh(G0('pebble', () => mergeParts(pebbleParts(), { aoH: 0.15 })))); break;
-      case 'loach': {
-        const m = mesh(G0('loach', () => mergeParts(loachParts(), { aoH: 0 })));
-        group.add(m);
-        o.update = (dt) => { o.t += dt; const f = o.state === 'flop' ? 1 : o.state === 'slide' ? 1.6 : 0; m.rotation.y = Math.sin(o.t * 17) * 0.5 * f; m.rotation.z = Math.sin(o.t * 13) * 0.18 * f; };
-        break;
-      }
       case 'clam': case 'pearlClam': {
         const pearl = id === 'pearlClam';
         const sp = pearl ? shellParts(0x8d7aa6, 0x6e5c88, 0xf1d8e8) : shellParts(0x6c7a5a, 0x4f5a42, 0xe8dcd0);

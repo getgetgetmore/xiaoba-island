@@ -65,7 +65,11 @@ export function createIsland(ctx) {
   kMain.castShadow = true; kMain.receiveShadow = true;
   const kGlow = new THREE.Mesh(kennel.glow, matGlow);
   kGlow.receiveShadow = false;
-  kg.add(kMain, kGlow);
+  const kFood = new THREE.Mesh(kennel.food, matWood);
+  kFood.castShadow = false; kFood.visible = false;
+  kg.add(kMain, kGlow, kFood);
+  // 狗碗：level 0..1 = 碗里还剩多少狗粮（0 = 空碗）
+  const bowl = { level: 0, setLevel(v) { bowl.level = Math.min(1, Math.max(0, v)); kFood.visible = bowl.level > 0.04; kFood.position.y = -0.045 * (1 - bowl.level); } };
   kg.updateMatrixWorld(true);
 
   // ---------- 玩具架（狗窝左侧外墙上的一排格子）----------
@@ -253,6 +257,9 @@ export function createIsland(ctx) {
     sunsetFacing: -Math.PI / 2,
     pond: { x: L.pond.x, z: L.pond.z, r: L.pond.r },
     pondDrink: v(L.pond.x + (L.pond.r + 0.3) * 0.97, L.pond.z - (L.pond.r + 0.3) * 0.24),
+    bowl: v(bwx, bwz), // 狗碗（窝门口左前）
+    // 吃饭时站的位置：碗的右侧（靠门那边、顺着墙的方向）、略靠外，脸朝着碗——从正面看过去能看到它埋头吃的脸，碗在它嘴前不被身子挡住
+    bowlStand: (() => { let x = bwx + k.dz * 0.66 + k.dx * 0.3, z = bwz - k.dx * 0.66 + k.dz * 0.3; if (!isWalkable(x, z)) { const c = clampWalkable(x, z); x = c.x; z = c.z; } return v(x, z); })(),
   };
 
   // 池塘里的常驻小动物：青蛙（荷叶）与螃蟹（岸边石头）
@@ -365,6 +372,7 @@ export function createIsland(ctx) {
     shelf, // 狗窝外墙上的玩具架
     flowerHeads: flowers.heads, // [{x, z, top}] 每朵花的花头顶面（昆虫落脚点）
     anchors,
+    bowl, // 狗碗里的狗粮（{ level, setLevel(0..1) }）
     pondLife, // 池塘常驻的青蛙 / 螃蟹（{ group, update, frogs, crabs, setHidden(bool) }）
     mat,
   };

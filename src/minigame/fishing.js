@@ -32,6 +32,11 @@ const LAND_K = 1.08;
 const SIT_WAIT = 1.2;      // 坐下后多久开始第一钩
 const SIZE = { goldfish: 1.3, koi: 1.1, weed: 1.15, lotusLeaf: 1.15, lotusPod: 1.1, pebble: 1.2, crab: 1.75, frog: 1.6, loach: 2.5, clam: 1.5, pearlClam: 1.55, twig: 2.3, bottle: 1.1 };
 
+const LIFT_T = FISH.LIFT; // 出水的第一段：东西挂在尾巴上被提出水面的时间
+// 各样东西挂在尾巴上时“被夹 / 被钩住”的部位（缺省 = 顶部）
+const GRIP = { weed: 'base', lotusPod: 'base', lotusLeaf: 'side', twig: 'end', clam: 'front', pearlClam: 'front', frog: 'front', pebble: 'top', bottle: 'top' };
+const DOWN = new THREE.Vector3(0, -1, 0), XAX = new THREE.Vector3(1, 0, 0), YAX = new THREE.Vector3(0, 1, 0), ZAX = new THREE.Vector3(0, 0, 1), QID = new THREE.Quaternion();
+
 const ease = (u) => { u = clamp(u, 0, 1); return u * u * (3 - 2 * u); };
 
 export function createFishing(ctx) {
@@ -147,6 +152,8 @@ export function createFishing(ctx) {
   const headPt = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), a3 = new THREE.Vector3(), b3 = new THREE.Vector3();
   let tailInWater = false;
   const lookV = new THREE.Vector3();
+  const _hd = new THREE.Vector3(), _hf = new THREE.Vector3(), _hp = new THREE.Vector3(), _hq = new THREE.Quaternion(), qTmp = new THREE.Quaternion();
+  const hangP = new THREE.Vector3(), hangQ = new THREE.Quaternion();
   const fishInfo = {};
 
   function build() {
@@ -183,6 +190,7 @@ export function createFishing(ctx) {
   function start(opts = {}) {
     if (fishing.active || !dog || !brain || !brain.enterGame || !ctx.renderer || typeof document === 'undefined') return false;
     if (ctx.game && ctx.game.active) return false;
+    if (ctx.travel && ctx.travel.blockPlay()) return false; // 小狗出门了
     if (!brain.canGame()) { if (hud) hud.toast(refuseReason()); return false; }
     build();
     computeSpot();
@@ -290,7 +298,7 @@ export function createFishing(ctx) {
     if (!fishing.active) return;
     const mover = brain.mover;
     if (force && mover) { mover.clearGoal(); mover.place(out.x, out.z, heading + Math.PI); }
-    dog.tailDrop = 0; dog.tailTug = 0; dog.earPerk = 0; dog.lookAt(null);
+    dog.tailDrop = 0; dog.tailTug = 0; dog.tailLift = 0; dog.earPerk = 0; dog.lookAt(null);
     if (brain.mode === 'game') brain.exitGame();
     fishing.active = false; fishing.ending = false; fishing.view = null;
     if (island.pondLife && island.pondLife.setHidden) { try { island.pondLife.setHidden(false); } catch (_) { /* ignore */ } }
@@ -311,7 +319,7 @@ export function createFishing(ctx) {
   const controller = {
     get state() { return ph + (ph === 'play' && fishing.sim ? ':' + fishing.sim.phase : ''); },
     enter() {},
-    exit() { dog.tailDrop = 0; dog.tailTug = 0; dog.earPerk = 0; dog.lookAt(null); },
+    exit() { dog.tailDrop = 0; dog.tailTug = 0; dog.tailLift = 0; dog.earPerk = 0; dog.lookAt(null); },
     onNeedKennel(why) {
       if (!fishing.active || fishing.ending) return;
       if (hud) hud.toast(why === 'rain' ? '下雨啦，先回去躲雨吧' : '夜深了，小柴困啦');
@@ -374,7 +382,7 @@ export function createFishing(ctx) {
         break;
       }
       case 'leave': {
-        dog.tailDrop = 0; dog.tailTug = 0; dog.earPerk = 0;
+        dog.tailDrop = 0; dog.tailTug = 0; dog.tailLift = 0; dog.earPerk = 0;
         dog.lookAt(null);
         mover.spinRate = 0;
         // 还没走到水边（比如刚开始走就退出）：小狗在正常的可行走位置上，直接交还给自主行为
@@ -431,7 +439,7 @@ export function createFishing(ctx) {
     dispatchResult(res, true);
     setPhase('over');
     resultT = 0;
-    dog.tailDrop = 0; dog.tailTug = 0; dog.earPerk = 0;
+    dog.tailDrop = 0; dog.tailTug = 0; dog.tailLift = 0; dog.earPerk = 0;
     dog.setAction(res.stars >= 2 ? 'spin' : 'idle', { fade: 0.25 });
     if (pondCtl) pondCtl.setLure(null);
     clearLoot();
@@ -489,6 +497,8 @@ export function createFishing(ctx) {
   function spawnLoot(id, big) {
     clearLoot();
     const o = kit.make(id);
+    const hang = hangSpec(o, id); // 要在缩放 / 摆放之前量
+    if (o.extra && o.extra.fish) o.extra.fish.viewer = ctx.camera.position;
     if (big) { // 大鱼：一团巨大的深色影子
       o.group.traverse((m) => { if (m.isMesh) m.material = bigMat(); });
       o.group.scale.setScalar(3.2);
@@ -496,8 +506,38 @@ export function createFishing(ctx) {
     o.group.position.set(hookPt.x, WATER_Y - 0.11, hookPt.z);
     o.group.rotation.set(0, Math.atan2(contact.x - hookPt.x, contact.z - hookPt.z) + 1.2, 0);
     ctx.scene.add(o.group);
-    lootCur = { o, id, big: !!big, base: o.group.scale.x, hid: false };
+    lootCur = { o, id, big: !!big, base: o.group.scale.x, hid: false, hang };
     if (id === 'goldfish' || id === 'koi' || id === 'loach') o.setState('swim');
+  }
+  /** 这样东西挂在尾巴上时：grip = 被夹 / 咬住的那一点，center = 重心（都在它自己的坐标里），face = 朝向镜头的那一面，back = 夹在离尾巴梢多远的地方 */
+  function hangSpec(o, id) {
+    const H = { grip: new THREE.Vector3(), center: new THREE.Vector3(), face: new THREE.Vector3(0, 0, 1), back: 0 };
+    const f = o.extra && o.extra.fish;
+    if (f) { H.grip.copy(f.mouth); H.center.copy(f.center); H.face.set(1, 0, 0); H.back = 0.2; return H; } // 鱼：嘴咬着尾巴梢，身子垂下来
+    if (id === 'crab' && kit.usingPondlife.crab) { H.grip.set(0.106, 0.192, 0.218); H.center.set(0, 0.06, 0); H.face.set(0, 1, 0); H.back = 0.32; return H; } // 螃蟹：举起的那只大钳的两指之间
+    const box = new THREE.Box3().setFromObject(o.group), c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+    H.center.copy(c); H.grip.copy(c);
+    switch (GRIP[id] || 'top') {
+      case 'base': H.grip.y = box.min.y; break;
+      case 'side': H.grip.x = box.max.x; H.face.set(0, 1, 0); break;
+      case 'front': H.grip.z = box.max.z; H.face.set(0, 1, 0); H.back = 0.25; break;
+      case 'end': if (sz.x >= sz.y && sz.x >= sz.z) H.grip.x = box.max.x; else if (sz.z >= sz.y) H.grip.z = box.max.z; else H.grip.y = box.max.y; break;
+      default: H.grip.y = box.max.y; break;
+    }
+    return H;
+  }
+  /** 挂在尾巴梢上的位置和朝向：重心垂在夹住的那一点正下方，像钟摆一样晃（amp = 晃动幅度，弧度） */
+  function hangPose(H, sc, time, amp, outPos, outQ) {
+    _hd.copy(H.center).sub(H.grip);
+    if (_hd.lengthSq() < 1e-8) outQ.identity(); else outQ.setFromUnitVectors(_hd.normalize(), DOWN);
+    _hf.copy(H.face).applyQuaternion(outQ);
+    const yaw = Math.hypot(_hf.x, _hf.z) > 0.2 ? Math.atan2(ctx.camera.position.x - tail[6].x, ctx.camera.position.z - tail[6].z) - Math.atan2(_hf.x, _hf.z) : 0;
+    outQ.premultiply(_hq.setFromAxisAngle(YAX, yaw + 0.3 * Math.sin(time * 2.7)));
+    outQ.premultiply(_hq.setFromAxisAngle(ZAX, amp * Math.sin(time * 8.5)));
+    outQ.premultiply(_hq.setFromAxisAngle(XAX, amp * 0.6 * Math.sin(time * 6.3 + 1)));
+    _hp.copy(tail[6]).lerp(tail[5], H.back);
+    _hd.copy(H.grip).multiplyScalar(sc).applyQuaternion(outQ);
+    outPos.copy(_hp).sub(_hd);
   }
   let _bigMat = null;
   function bigMat() { return _bigMat || (_bigMat = new THREE.MeshBasicMaterial({ color: 0x2c4a63, transparent: true, opacity: 0.7, depthWrite: false })); }
@@ -523,6 +563,7 @@ export function createFishing(ctx) {
       if (e.loot.id === 'bottle') { store.markBottle(today); if (e.note) store.markSeen(e.note.id); }
     } catch (_) { /* ignore */ }
     land.a.copy(lootCur.o.group.position);
+    land.a0 = lootCur.o.group.position.clone(); land.q0 = lootCur.o.group.quaternion.clone(); land.hang = lootCur.hang;
     if (fx) { fx.ripple(hookPt.x, hookPt.z, 0.55, 0, 0.85, 1.2); fx.ripple(hookPt.x, hookPt.z, 0.35, 0.15, 0.6, 1.1); fx.splash(hookPt.x, WATER_Y, hookPt.z, 16, 2.2); }
     if (pondCtl) pondCtl.scatter(2.8);
     if (hud) { hud.setScore(sim.score); }
@@ -538,7 +579,14 @@ export function createFishing(ctx) {
   function landUpdate(dt, sim, mover) {
     const R = land;
     R.t += dt;
-    const t = R.t, g = R.o.group, sc = SIZE[R.id] || 1;
+    const g = R.o.group, sc = SIZE[R.id] || 1;
+    // 第一段（钓到什么都一样）：东西挂在尾巴梢上，尾巴抬起来把它提出水面；之后尾巴一甩，才轮到各自的反应。
+    const t = R.t - LIFT_T; // 下面各脚本的时间都从“甩出去”那一刻算起
+    if (t < 0) { liftUpdate(R, g, sc, mover); R.o.update(dt); return; }
+    if (!R.rel) {
+      R.rel = true; R.a.copy(g.position); R.qa = g.quaternion.clone();
+      if (R.kind !== 'shake' && R.kind !== 'crab') { dog.tailDrop = 0; dog.tailLift = 0; if (fx) fx.splash(g.position.x, g.position.y, g.position.z, 7, 1.3); } // 水草 / 螃蟹还赖在尾巴上，要站起来甩
+    }
     const sit = () => { dog.setAction('sit', { fade: 0.3 }); mover.face(heading); };
     const stand = () => { dog.tailDrop = 0; };
     dogLook(landPt, 0.25);
@@ -554,9 +602,8 @@ export function createFishing(ctx) {
     const flight = (to, t0, dur, peak, spin) => {
       const u = clamp((t - t0) / dur, 0, 1);
       if (u <= 0) return 0;
-      arc(g.position, R.a, to, ease(u) * 0.0 + u, peak);
-      g.rotation.z = spin * u;
-      g.rotation.x = 0.3 * Math.sin(u * Math.PI);
+      arc(g.position, R.a, to, u, peak);
+      g.quaternion.slerpQuaternions(R.qa, QID, u).multiply(qTmp.setFromAxisAngle(XAX, spin * u)); // 从挂着的姿态翻着跟头转正
       if (u >= 1 && !R.landed) { R.landed = true; R.squash = 1; fxLand(to); }
       return u;
     };
@@ -633,13 +680,13 @@ export function createFishing(ctx) {
       case 'shake': { // 水草：缠在尾巴上，小狗站起来甩
         if (R.stage === 0) { R.stage = 1; g.visible = true; }
         if (!R.flown) {
-          g.position.copy(tail[6]);
-          g.rotation.set(Math.PI + 0.2, 0, 0.15 * Math.sin(t * 20));
+          hangPose(R.hang, sc, R.t, 0.32, g.position, g.quaternion);
           g.scale.setScalar(sc * (1.0 + 0.02 * Math.sin(t * 9)));
+          dog.tailDrop = 0.55; dog.tailLift = t < 0.35 ? 0.7 : 0; // 站起来之前尾巴先举着（别让东西又掉回水里），之后尾巴向后伸着，水草挂在梢上甩来甩去
           if (t > 0.3 && t < 1.55) dog.setAction('shake', { fade: 0.1 });
           else if (t >= 1.55 && t < 1.62) dog.setAction('idle', { fade: 0.05 });
           else if (t >= 1.62 && t < 2.5) dog.setAction('shake', { fade: 0.05 });
-          if (t >= 2.15) { R.flown = true; R.a.copy(g.position); R.fly = 0; }
+          if (t >= 2.15) { R.flown = true; R.a.copy(g.position); R.fly = 0; dog.tailDrop = 0; }
         } else {
           R.fly += dt;
           const u = clamp(R.fly / 0.6, 0, 1);
@@ -655,13 +702,14 @@ export function createFishing(ctx) {
         break;
       }
       case 'crab': { // 螃蟹：夹住尾巴，小狗蹦起来转圈甩掉，它被甩到岸上，横着溜回水里
-        if (R.stage === 0) { R.stage = 1; g.visible = true; R.o.setState('pinch'); }
+        if (R.stage === 0) { R.stage = 1; g.visible = true; R.o.setState('grip'); }
         if (!R.flown) {
-          g.position.copy(tail[6]).add(tmp.set(0, -0.05, 0));
-          g.rotation.set(0, heading + 1.0, 0.25 * Math.sin(t * 22));
+          // 一只大钳夹着尾巴梢不放，整只螃蟹吊在尾巴上晃
+          hangPose(R.hang, sc, R.t, 0.4, g.position, g.quaternion);
           g.scale.setScalar(sc);
+          dog.tailDrop = 0.55; dog.tailLift = t < 0.35 ? 0.7 : 0;
           if (t > 0.2) { dog.setAction('spin', { fade: 0.1 }); dog.bliss = 0.0; mover.spinRate = t > 0.5 ? 9 : 0; }
-          if (t >= 2.0) { R.flown = true; R.a.copy(g.position); R.fly = 0; mover.spinRate = 0; R.o.setState('idle'); }
+          if (t >= 2.0) { R.flown = true; R.a.copy(g.position); R.fly = 0; mover.spinRate = 0; R.o.setState('idle'); dog.tailDrop = 0; }
         } else {
           R.fly += dt;
           const u = clamp(R.fly / 0.65, 0, 1);
@@ -713,8 +761,26 @@ export function createFishing(ctx) {
     R.o.update(dt);
   }
 
+  /** 出水的第一段：东西从水下凑到尾巴梢上挂住，尾巴抬到水平把它提出水面，甩之前往下一沉蓄力 */
+  function liftUpdate(R, g, sc, mover) {
+    const tl = R.t;
+    if (!R.liftInit) { R.liftInit = true; g.visible = true; if (R.id === 'crab') R.o.setState('grip'); else if (R.id === 'frog') R.o.setState('held'); }
+    dog.setAction('sit', { fade: 0.3 }); mover.face(heading);
+    dog.tailDrop = 1; dog.tailLift = tl < LIFT_T - 0.15 ? 0.7 : 1; // 尾巴绷直了扬起来，把东西吊出水面；最后猛地一扬把它甩出去
+    dog.earPerk = 1; dog.lookAt(tail[6]);
+    hangPose(R.hang, sc, tl, 0.3, hangP, hangQ);
+    const w = ease(tl / 0.18);
+    g.position.lerpVectors(R.a0, hangP, w); g.quaternion.slerpQuaternions(R.q0, hangQ, w);
+    g.scale.setScalar(sc);
+    if (!R.outW && g.position.y > WATER_Y - 0.02 && tl > 0.12) { // 出水的那一下
+      R.outW = true;
+      if (fx) { fx.splash(g.position.x, WATER_Y, g.position.z, 16, 2.1); fx.ripple(g.position.x, g.position.z, 0.5, 0, 0.85, 1.2); }
+    }
+    if (R.outW && fx && ((tl * 9) % 1) < 0.34) fx.splash(g.position.x, g.position.y, g.position.z, 1, 0.5); // 往下滴水
+  }
+
   function bottleUpdate(dt, R, sim, mover, g, sc) {
-    const t = R.t;
+    const t = R.t - LIFT_T;
     dog.lookAt(R.stage >= 1 ? g.position : landPt);
     // 小狗用鼻子把瓶子拱到镜头前（瓶子贴地滑向镜头、越来越近越来越大）
     toCam.set(ctx.camera.position.x - R.b.x, 0, ctx.camera.position.z - R.b.z).normalize();
@@ -736,7 +802,7 @@ export function createFishing(ctx) {
       if (R.noteT > 0.55 && !R.noteOpened) {
         R.noteOpened = true;
         paused = true;
-        if (hud) hud.note(R.note, () => { R.noteClosed = true; R.noteClosedAt = R.t; paused = false; });
+        if (hud) hud.note(R.note, () => { R.noteClosed = true; R.noteClosedAt = R.t - LIFT_T; paused = false; });
       }
     }
     if (R.noteClosed) {
@@ -815,7 +881,7 @@ export function createFishing(ctx) {
       if (!land && !prank) { dog.bliss = 0; mover.spinRate = 0; }
       return;
     }
-    dog.bliss = 0;
+    dog.bliss = 0; dog.tailLift = 0;
     mover.spinRate = 0;
     switch (phz) {
       case 'cast': tug = -0.5; lookCamera(); dog.setAction('sit', { fade: 0.3 }); break;
@@ -903,7 +969,7 @@ export function createFishing(ctx) {
     // 鱼线 + 小浮漂：尾巴末端在水面以上时才画
     if (fx) {
       const inPlay = ph === 'play' || ph === 'sit' || ph === 'over';
-      const showLine = inPlay && !tailInWater && dog.tailDrop > 0.6 && !(land && (land.kind === 'shake' || land.kind === 'crab') && land.t < 2.3);
+      const showLine = inPlay && !tailInWater && dog.tailDrop > 0.6 && !(land && (land.t < LIFT_T + 0.15 || ((land.kind === 'shake' || land.kind === 'crab') && land.t < 2.3 + LIFT_T)));
       if (showLine) {
         a3.copy(tail[6]); b3.set(tail[6].x, WATER_Y - 0.03, tail[6].z);
         fx.setLine(true, a3, b3);

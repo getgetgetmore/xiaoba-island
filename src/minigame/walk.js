@@ -150,6 +150,7 @@ export function createWalkGame(ctx) {
   // ------------------------------------------------------------------ 开始 / 结束
   function start(opts = {}) {
     if (game.active || !dog || !ctx.renderer || typeof document === 'undefined') return false;
+    if (ctx.travel && ctx.travel.blockPlay()) return false; // 小狗出门了
     measure();
     build();
     resize(viewW, viewH);

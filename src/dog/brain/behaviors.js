@@ -49,7 +49,7 @@ export function createBehaviors(S) {
     }
     return {
       name: 'zoomies',
-      weight: () => (S.env.weather === 'clear' ? 3 : S.env.weather === 'cloudy' ? 0.5 : 0) * (S.evening ? 0.3 : 1) * (1 - 0.85 * S.exertion), // 跑累了就不想再疯跑
+      weight: () => (S.env.weather === 'clear' ? 3 : S.env.weather === 'cloudy' ? 0.5 : 0) * (S.evening ? 0.3 : 1) * (1 - 0.85 * S.exertion) * S.energy * S.energy, // 跑累了就不想再疯跑；精力足（清晨、傍晚）才撒欢
       enter() { st.t = 0; st.dur = rand(7, 13); st.ending = false; S.look(null); pickWp(true); },
       update(dt) {
         st.t += dt;
@@ -70,7 +70,7 @@ export function createBehaviors(S) {
     const st = { phase: 0, t: 0, travelT: 0, rollDur: 0 };
     return {
       name: 'roll',
-      weight: () => (S.env.weather === 'clear' ? 4.5 : S.env.weather === 'cloudy' ? 0.5 : 0) * (S.evening ? 0.3 : 1),
+      weight: () => (S.env.weather === 'clear' ? 4.5 : S.env.weather === 'cloudy' ? 0.5 : 0) * (S.evening ? 0.3 : 1) * (0.25 + 0.75 * S.energy),
       enter() {
         st.phase = 0; st.t = 0; st.rollDur = rand(3.5, 6);
         S.look(null);
@@ -111,7 +111,7 @@ export function createBehaviors(S) {
     function setPhase(p) { st.phase = p; st.t = 0; }
     return {
       name: 'chase',
-      weight: () => (S.pickChaseTarget() ? (S.env.weather === 'clear' ? 5 : 1.5) : 0) * (1 - 0.5 * S.exertion),
+      weight: () => (S.pickChaseTarget() ? (S.env.weather === 'clear' ? 5 : 1.5) : 0) * (1 - 0.5 * S.exertion) * Math.min(1.3, 0.12 + 0.88 * S.energy * S.energy),
       enter() { st.count = 0; st.max = rint(2, 3); st.tgt = null; S.look(null); setPhase('pick'); },
       update(dt) {
         st.t += dt;
@@ -234,7 +234,7 @@ export function createBehaviors(S) {
     }
     return {
       name: 'sniff',
-      weight: () => (S.env.weather === 'cloudy' ? 3.5 : 3),
+      weight: () => (S.env.weather === 'cloudy' ? 3.5 : 3) * (0.45 + 0.55 * Math.min(1, S.energy)), // 中午犯困、晚上要睡了：少溜达
       enter() { st.phase = 0; st.total = 0; st.dur = rand(8, 16); st.last = -1; S.look(null); nextSpot(); },
       update(dt) {
         st.total += dt;
@@ -269,7 +269,7 @@ export function createBehaviors(S) {
     }
     return {
       name: 'wander',
-      weight: () => 3,
+      weight: () => 3 * (0.45 + 0.55 * Math.min(1, S.energy)),
       enter() { st.phase = 0; st.total = 0; st.dur = rand(8, 18); S.look(null); nextPoint(); },
       update(dt) {
         st.total += dt;
@@ -295,7 +295,7 @@ export function createBehaviors(S) {
     const st = { phase: 0, t: 0, dur: 0, face: 0, lookT: 0 };
     return {
       name: 'sit',
-      weight: () => (S.env.weather === 'cloudy' ? 3 : 2) * (1 + 2 * S.exertion), // 累了坐下歇会儿
+      weight: () => (S.env.weather === 'cloudy' ? 3 : 2) * (1 + 2 * S.exertion) * (1.8 - 0.8 * Math.min(1, S.energy)), // 累了、精力低的时段多坐着歇会儿
       enter() {
         st.phase = 0; st.t = 0; st.dur = rand(8, 16);
         st.face = A.frontFacing + rand(-0.9, 0.9);
@@ -326,9 +326,9 @@ export function createBehaviors(S) {
     return {
       name: 'nap',
       // 垫子在窝里、可以拖出去晒太阳时，由 sunbathe 取代大部分打盹
-      weight: () => (S.env.hour >= 12.5 && S.env.hour < 14.5 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 2.5 : 5) : 0),
+      weight: () => (S.env.hour >= 12.25 && S.env.hour < 14.75 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 5 : 10) : 0),
       enter() {
-        st.phase = 0; st.t = 0; st.dur = rand(12, 22);
+        st.phase = 0; st.t = 0; st.dur = rand(35, 70); // 午觉睡得久一点
         S.look(null);
         startTravel(st, A.napSpot.x, A.napSpot.z, { arriveR: 0.15 });
       },
@@ -358,8 +358,9 @@ export function createBehaviors(S) {
     const st = { phase: 0, t: 0, travelT: 0, dd: 0, face: 0 };
     return {
       name: 'drink',
-      weight: () => (S.env.weather === 'cloudy' ? 1 : 1.5) * (1 + 6 * S.exertion), // 跑累了口渴，去池塘喝水
+      weight: () => (S.env.weather === 'cloudy' ? 1 : 1.5) * (1 + 6 * S.exertion) + 30 * S.thirst, // 跑累了口渴，去池塘喝水；刚吃完饭 / 刚睡醒也要喝
       enter() {
+        S.thirst = 0;
         st.phase = 0; st.t = 0; st.dd = rand(4.5, 8);
         S.look(null);
         startTravel(st, A.pondDrink.x, A.pondDrink.z, { arriveR: 0.12 });
@@ -450,6 +451,84 @@ export function createBehaviors(S) {
     };
   })();
 
+  // ---------------------------------------------------------------- 起床：出窝，伸个懒腰，抖抖毛，四下看看
+  const wake = (() => {
+    const st = { phase: 0, t: 0, travelT: 0 };
+    return {
+      name: 'wake',
+      weight: () => (S.justWoke ? 600 : 0),
+      enter() {
+        S.justWoke = false;
+        st.phase = 0; st.t = 0;
+        S.look(null);
+        startTravel(st, A.kennelDoor.x, A.kennelDoor.z, { arriveR: 0.15 });
+      },
+      update(dt) {
+        if (st.phase === 0) {
+          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; mover.face(A.kennelFacing); }
+          return false;
+        }
+        st.t += dt;
+        if (st.phase === 1) {
+          dog.setAction('idle');
+          if ((mover.headingError(A.kennelFacing) < 0.2 && st.t > 0.3) || st.t > 2) { st.phase = 2; st.t = 0; }
+        } else if (st.phase === 2) {
+          dog.setAction('playbow'); // 前腿趴低、屁股撅高：伸懒腰
+          if (st.t > 2.0) { st.phase = 3; st.t = 0; }
+        } else if (st.phase === 3) {
+          dog.setAction('shake');
+          if (st.t > 1.3) { st.phase = 4; st.t = 0; }
+        } else {
+          dog.setAction('sit');
+          S.lookAround(dt);
+          if (st.t > 2.6) return true;
+        }
+        return false;
+      },
+      exit() { S.look(null); },
+    };
+  })();
+
+  // ---------------------------------------------------------------- 吃饭：饭点到了，小跑到碗边，埋头吃完
+  const eat = (() => {
+    const st = { phase: 0, t: 0, travelT: 0, dur: 0, face: 0 };
+    const stand = A.bowlStand, bowlPos = A.bowl;
+    return {
+      name: 'eat',
+      repeatable: true,
+      weight: () => (S.mealDue && stand && !S.rainHold ? 80 : 0),
+      enter() {
+        st.phase = 0; st.t = 0; st.dur = rand(8.5, 10.5);
+        S.look(bowlPos);
+        startTravel(st, stand.x, stand.z, { speed: 2.2, arriveR: 0.1 });
+      },
+      update(dt) {
+        if (!S.mealDue && st.phase < 3) return true; // 饭点过了
+        if (st.phase === 0) {
+          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; st.face = Math.atan2(bowlPos.x - mover.x, bowlPos.z - mover.z); mover.face(st.face); }
+          return false;
+        }
+        st.t += dt;
+        if (st.phase === 1) {
+          dog.setAction('idle');
+          if ((mover.headingError(st.face) < 0.15 && st.t > 0.3) || st.t > 2) { st.phase = 2; st.t = 0; S.look(null); }
+        } else if (st.phase === 2) {
+          // 埋头吃，中间抬头舔舔嘴歇两次；碗里的狗粮随着减少
+          const u = st.t / st.dur, pause = (u > 0.36 && u < 0.43) || (u > 0.7 && u < 0.76);
+          dog.setAction(pause ? 'idle' : 'drink');
+          if (island.bowl) island.bowl.setLevel(1 - u);
+          if (st.t > st.dur) { st.phase = 3; st.t = 0; S.markAte(); S.thirst = 1; if (island.bowl) island.bowl.setLevel(0); }
+        } else {
+          dog.setAction('sit');
+          dog.bliss = st.t < 1.6 ? 0.9 : 0; // 吃饱了，眯眼
+          if (st.t > 2.0) return true;
+        }
+        return false;
+      },
+      exit() { dog.bliss = 0; S.look(null); },
+    };
+  })();
+
   // ---------------------------------------------------------------- 狗窝（避雨 / 睡觉）
   const kennel = (() => {
     const st = { phase: 'goto', t: 0, travelT: 0, wet: false, slept: false, lookT: 0, look: null, rescue: false };
@@ -505,7 +584,7 @@ export function createBehaviors(S) {
             if (!S.needKennel()) { mover.clearGoal(); return true; }
             if (travelDone(st, dt)) {
               setPhase('inside');
-              mover.goStraight(A.kennelInside.x, A.kennelInside.z, { arriveR: 0.08 });
+              mover.goStraight(A.kennelInside.x, A.kennelInside.z, { arriveR: 0.08, speed: S.rainHold ? 2.0 : 0 }); // 下着雨：小跑着钻进窝，不是慢慢踱进去
               st.travelT = 0;
             }
             break;
@@ -577,5 +656,5 @@ export function createBehaviors(S) {
     };
   })();
 
-  return { zoomies, roll, chase, sniff, wander, sit, nap, drink, sunset, evening, kennel };
+  return { zoomies, roll, chase, sniff, wander, sit, nap, drink, sunset, evening, kennel, wake, eat };
 }

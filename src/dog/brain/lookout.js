@@ -50,7 +50,10 @@ export function createLookout(S) {
     weight() {
       const e = S.env;
       if (S.rainHold || S.sleepTime || e.isRaining || e.rain > 0.05) return 0;
-      let w = e.weather === 'clear' ? 3 : e.weather === 'cloudy' ? 2 : 0;
+      let w = e.weather === 'clear' ? 2.4 : e.weather === 'cloudy' ? 1.6 : 0;
+      // 作息：清晨巡视、傍晚看风景时最爱上去；中午犯困、天黑以后基本不上
+      const h = e.hour;
+      w *= h < 7 ? 0.5 : h < 9.5 ? 1 : h < 12 ? 0.7 : h < 14.75 ? 0.2 : h < 16.5 ? 0.7 : h < 19.5 ? 1.2 : h < 20.5 ? 0.3 : 0.05;
       if (S.age < GRACE) return 0; // 启动后头 3 分钟先自由活动（长时间行为不抢在短行为前面）
       if (S.age - (this.endedAt === undefined ? -1e9 : this.endedAt) < 90) w *= 0.4; // 刚下来不久，少选
       return w;

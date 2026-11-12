@@ -176,6 +176,7 @@ export function createStick(ctx) {
   function click(worldPoint) {
     // 小游戏（遛狗 / 钓鱼）进行中不能拿出树枝：指针事件那边已经拦了，这里把接口本身也拦住
     if (stick.state === 'hidden' && ((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active))) return;
+    if (stick.state === 'hidden' && ctx.travel && ctx.travel.blockPlay()) return; // 小狗乘白鹭出门了 / 正要走：给个提示，不拿树枝
     heldTime = 0; // 任何点击都刷新交互时间
     switch (stick.state) {
       case 'hidden':

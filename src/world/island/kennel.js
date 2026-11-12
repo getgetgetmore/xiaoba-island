@@ -191,7 +191,10 @@ export function buildKennel() {
   const bowl = [-0.8, 0, 1.65];
   b.add(jitterGeo(new THREE.CylinderGeometry(0.17, 0.11, 0.1, 9), 0.008), { pos: [bowl[0], 0.05, bowl[2]], color: (nx, ny) => (ny > 0.5 ? 0x7a6a50 : C.rust), ao: false });
   b.add(new THREE.CylinderGeometry(0.14, 0.14, 0.012, 9), { pos: [bowl[0], 0.098, bowl[2]], color: 0x8a6a48, ao: false });
-  for (let i = 0; i < 7; i++) b.add(new THREE.IcosahedronGeometry(0.03, 0), { pos: [bowl[0] + (rng() - 0.5) * 0.18, 0.115 + rng() * 0.02, bowl[2] + (rng() - 0.5) * 0.18], color: mixHex(0x8a6a48, 0x5c3a2e, rng()), ao: false });
+  // 狗粮单独成一个网格：饭点才盛上，吃完就空了（island.bowl 控制）
+  const food = new GeoBuilder({ seed: 97, jitter: 0, aoK: 0 });
+  food.add(new THREE.CylinderGeometry(0.135, 0.12, 0.03, 9), { pos: [bowl[0], 0.108, bowl[2]], color: 0x7a5236, ao: false });
+  for (let i = 0; i < 11; i++) { const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * 0.1; food.add(new THREE.IcosahedronGeometry(0.03, 0), { pos: [bowl[0] + Math.cos(a) * r, 0.125 + rng() * 0.022, bowl[2] + Math.sin(a) * r], color: mixHex(0x8a6a48, 0x5c3a2e, rng()), ao: false }); }
 
-  return { main: b.build(), glow: glow.build() };
+  return { main: b.build(), glow: glow.build(), food: food.build() };
 }
