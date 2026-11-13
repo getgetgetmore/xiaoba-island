@@ -1,5 +1,7 @@
 // 小白鹭（Little Egret）：外形来自导入的模型 src/assets/egret.glb（先调用 preloadEgret() 加载；已由 scripts/tools/egret-rig.mjs 离线绑好骨），
-// 动作全部是程序动画；飞行时展开的翅膀是程序生成的（导入的模型翅膀是收着的）。模型没加载到时退回下面这套纯程序化的造型。
+// 动作全部是程序动画。地面上（站立 / 行走 / 啄地）用站立姿态的模型 egret.glb；空中（起飞 / 飞行 / 滑翔 / 降落）换成飞行姿态的模型
+// egretFly.glb（由 scripts/tools/egret-fly-rig.mjs 处理），翅膀由骨骼带动扇动。飞行模型没加载到时，空中仍用站立模型 + 程序生成的翅膀；
+// 两个模型都没加载到时退回下面这套纯程序化的造型。
 //  - 整只鸟是一个 SkinnedMesh（1 个 draw call）：身体 / 4 节脖子 / 头 / 双翅各 3 节 / 双腿各 3 节 / 尾 / 蓑羽 / 饰羽
 //    都是刚性绑定到对应骨骼的低面数部件，逐帧只改骨骼的 position / rotation。
 //  - 约定：group 原点 = 站立时两脚之间的地面，头朝本地 +Z，+Y 向上。
@@ -12,30 +14,33 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { paintMaterial } from '../core/paint.js';
 
 // ------------------------------------------------------------------ 导入的模型
-let ASSET = null, assetLoad = null; // { geometry, map, rig }
-/** 加载白鹭模型（只加载一次）。失败时 resolve(false)，之后 createEgret() 用纯程序化造型。 */
-export function preloadEgret() {
-  if (assetLoad) return assetLoad;
-  assetLoad = new Promise((done) => {
-    let url;
-    try { url = new URL('../assets/egret.glb', import.meta.url).href; } catch (_) { done(false); return; }
+let ASSET = null, ASSET_FLY = null, assetLoad = null; // { geometry, map, rig }
+/** 读一个 GLB，取出里面的网格和 extras.rig；失败返回 null */
+function loadGlb(url, nodeName) {
+  return new Promise((done) => {
     // 用 XMLHttpRequest 取二进制：打包后页面是 file:// 协议，fetch 不一定能读本地文件
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true); xhr.responseType = 'arraybuffer';
-    xhr.onerror = () => done(false);
+    xhr.onerror = () => done(null);
     xhr.onload = () => {
-      if (!xhr.response || (xhr.status && xhr.status >= 400)) { done(false); return; }
+      if (!xhr.response || (xhr.status && xhr.status >= 400)) { done(null); return; }
       new GLTFLoader().parse(xhr.response, '', (gltf) => {
         let m = null; gltf.scene.traverse((o) => { if (o.isMesh && !m) m = o; });
-        const node = gltf.scene.getObjectByName('egret') || m;
+        const node = gltf.scene.getObjectByName(nodeName) || m;
         const rig = (node && node.userData && node.userData.rig) || (m && m.userData && m.userData.rig) || (m && m.parent && m.parent.userData && m.parent.userData.rig);
-        if (!m || !rig || !m.geometry.attributes.skinIndex) { done(false); return; }
-        ASSET = { geometry: m.geometry, map: m.material.map || null, rig };
-        done(true);
-      }, () => done(false));
+        if (!m || !rig || !m.geometry.attributes.skinIndex) { done(null); return; }
+        done({ geometry: m.geometry, map: m.material.map || null, rig });
+      }, () => done(null));
     };
-    try { xhr.send(); } catch (_) { done(false); }
+    try { xhr.send(); } catch (_) { done(null); }
   });
+}
+/** 加载白鹭模型（只加载一次）。失败时 resolve(false)，之后 createEgret() 用纯程序化造型。 */
+export function preloadEgret() {
+  if (assetLoad) return assetLoad;
+  let u1, u2;
+  try { u1 = new URL('../assets/egret.glb', import.meta.url).href; u2 = new URL('../assets/egretFly.glb', import.meta.url).href; } catch (_) { assetLoad = Promise.resolve(false); return assetLoad; }
+  assetLoad = Promise.all([loadGlb(u1, 'egret'), loadGlb(u2, 'egretFly')]).then(([a, b]) => { ASSET = a; ASSET_FLY = a ? b : null; return !!a; });
   return assetLoad;
 }
 
@@ -251,6 +256,26 @@ export function createEgret() {
     group.add(bodyMesh);
     bodyMesh.bind(skeleton, mesh.matrixWorld);
   }
+  // —— 飞行姿态的模型：自己的一副小骨架（身体 / 左右翅各 3 节 / 脖子 / 头 / 双腿），整体挂在主骨架的 body 骨头下面，跟着身体起伏、俯仰
+  const AF = A ? ASSET_FLY : null, FR = AF ? AF.rig : null;
+  let flyMesh = null;
+  const fb = {};
+  if (AF) {
+    const fbones = [];
+    const parentOf = { shR: 'body', elR: 'shR', wrR: 'elR', shL: 'body', elL: 'shL', wrL: 'elL', neck: 'body', head: 'neck', legs: 'body' };
+    for (const name of FR.order) {
+      const bone = new THREE.Bone(); bone.name = 'fly_' + name;
+      const p = FR.bones[name], pa = parentOf[name] ? FR.bones[parentOf[name]] : BODY_PIVOT;
+      bone.position.set(p[0] - pa[0], p[1] - pa[1], p[2] - pa[2]);
+      (parentOf[name] ? fb[parentOf[name]] : body).add(bone);
+      fb[name] = bone; fbones.push(bone);
+    }
+    group.updateMatrixWorld(true);
+    flyMesh = new THREE.SkinnedMesh(AF.geometry, paintMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }, { space: 'local', scale: 12, strength: 0.12, hue: 0.3, bands: 0.25, levels: 4 }));
+    flyMesh.frustumCulled = false; flyMesh.castShadow = true; flyMesh.visible = false;
+    group.add(flyMesh);
+    flyMesh.bind(new THREE.Skeleton(fbones), flyMesh.matrixWorld);
+  }
 
   // 背上小狗趴的位置：挂在 body 骨骼下，随身体起伏
   const seat = new THREE.Object3D();
@@ -304,7 +329,7 @@ export function createEgret() {
   const WALK_TC = 2.2, STANCE = 0.6; // 一个完整步周期（两条腿各迈一步）与支撑相占比
   eg.dims.height = 2.0;
   eg.dims.length = RG ? RG.dims.length : 1.35;
-  eg.dims.wingspan = geometry.boundingBox.max.x - geometry.boundingBox.min.x;
+  eg.dims.wingspan = FR ? FR.wingspan : geometry.boundingBox.max.x - geometry.boundingBox.min.x;
   eg.dims.stride = eg.walkSpeed * WALK_TC * 0.5;
 
   let tState = 0, tAll = Math.random() * 50, walkPhase = 0, flapPhase = 0, rate = 8;
@@ -438,7 +463,28 @@ export function createEgret() {
       w.wr.rotation.set(0, g * (sp * (0.45 * up * (amp > 0.1 ? 1 : 0))), g * (-lag * cosF * sp * 0.9 - 0.1 * sp + 0.04 * sp * Math.sin(tAll * 9)));
     }
 
-    if (A) mesh.visible = sp > 0.04;
+    // —— 用哪个模型：离地以后换成飞行姿态的模型（它的翅膀由骨骼带动），落地换回站立的模型
+    const useFly = !!flyMesh && fly > 0.5;
+    if (flyMesh) flyMesh.visible = useFly;
+    if (bodyMesh) bodyMesh.visible = !useFly;
+    if (A) mesh.visible = !useFly && sp > 0.04; // 程序生成的翅膀：只在站立模型张开翅膀时（起飞前蓄力、落地收翅的一瞬）才用得上
+    if (useFly) {
+      // 翅膀的上扬角（0 = 水平）。驮着小狗时翅膀压低、幅度小，不扫到背上的小狗
+      const dih = carry ? -0.1 + 0.4 * Math.min(1, amp) * sinF : clamp(base + amp * sinF, -0.85, 0.95);
+      const bend = lag * cosF;                         // 外段比内段慢半拍：上举时翼尖下垂，下压时翼尖上翘
+      const sweep = P[IX.sweep];
+      for (const side of ['R', 'L']) {
+        const g = side === 'R' ? 1 : -1;
+        fb['sh' + side].rotation.set(0.1 * cosF * (amp > 0.1 ? 1 : 0), g * sweep, g * (dih - FR.dihedral), 'ZYX');
+        fb['el' + side].rotation.z = g * (-0.45 * bend + 0.04 * Math.sin(tAll * 7));
+        fb['wr' + side].rotation.z = g * (-0.6 * bend);
+      }
+      // 脖子、头随扇翅轻轻起伏；降落时抬头、双腿放下来准备着地
+      const down = clamp((P[IX.legTZ] + 0.9) / 1.25, 0, 1);
+      fb.neck.rotation.x = -0.05 * sinF * Math.min(1, amp) + 0.3 * down; // 降落时身体竖起来，脖子和头往下压，保持喙大致水平
+      fb.head.rotation.x = 0.04 * sinF * Math.min(1, amp) + 0.35 * down;
+      fb.legs.rotation.x = -1.15 * down + 0.03 * Math.sin(tAll * 3.1);
+    }
 
     // —— 腿（IK）
     const g = P[IX.ground], hipAbs = BODY_PIVOT[1] + bodyY;

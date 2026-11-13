@@ -81,17 +81,18 @@ function proj(p, a, b) {
 }
 const count = {};
 const tag = (k) => { count[k] = (count[k] || 0) + 1; };
-const HEAD_Y = 1.675, PLUME_Y = 1.47;
+const HEAD_Y = 1.675, PLUME_Y = 1.47, NECK_FROM = 1.36;
 for (let i = 0; i < n; i++) {
   const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2], p = [x, y, z];
   // ---- 腿：髋部以下
-  if (y < 0.97) {
+  if (y < 1.0) {
     // 哪条腿：脚的高度上两只脚一前一后，用 z 分；往上用 x 分
     const side = y < 0.3 ? (z > zs(0.18) ? 'L' : 'R') : (x < 0 ? 'L' : 'R');
     const Lg = RIG.legs[side], hip = BONE['hip' + side], ank = BONE['ankle' + side], ft = BONE['foot' + side];
     const up = proj(p, Lg.hip, Lg.ankle), lo = proj(p, Lg.ankle, Lg.foot);
     // 大腿根的羽毛：越往上越跟着身体（只有靠近腿轴的才算腿）
-    const legW = ss(0.97, 0.8, y) * (y > 0.78 ? ss(0.2, 0.1, up.dist) : 1);
+    // 大腿根的羽毛整体跟着腿走（过渡带只留髋关节附近很窄的一圈）：过渡带太宽的话，飞行时腿向后收，这圈面会被拉成一片挂在肚子下面的“膜”
+    const legW = ss(1.0, 0.93, y) * (y > 0.86 ? ss(0.17, 0.1, up.dist) : 1);
     if (legW < 0.001) { set(i, [[BONE.body, 1]]); tag('body'); continue; }
     let wHip = 0, wAnk = 0, wFt = 0;
     const jw = 0.05; // 关节两侧各 0.05 的范围内过渡
@@ -109,7 +110,14 @@ for (let i = 0; i < n; i++) {
   }
   // ---- 头：头、喙，以及从后脑向后飘的两根饰羽
   const nz = neckZ(y);
-  const isHead = (y >= HEAD_Y && z > nz - 0.14) || (y >= PLUME_Y && z < nz - 0.12 && Math.abs(x) < 0.14) || y >= 1.8;
+  // 后脑的两根长饰羽一直向后垂到背上，末端和背部的面连在一起。只有靠近头的一段跟着头，越往后越跟着身体：
+  // 整条都绑在头上的话，飞行时头往前下方移动，会把背上的面扯成一大片挂在脖子下面。
+  if (y >= PLUME_Y && y < 1.8 && z < nz - 0.12 && Math.abs(x) < 0.14 && !(y >= HEAD_Y && z > nz - 0.14)) {
+    const wh = ss(0.62, 0.24, Math.hypot(z - zs(0.45), y - 1.8));
+    set(i, wh > 0.999 ? [[BONE.head, 1]] : wh < 0.001 ? [[BONE.body, 1]] : [[BONE.head, wh], [BONE.body, 1 - wh]]); tag('crest');
+    continue;
+  }
+  const isHead = (y >= HEAD_Y && z > nz - 0.14) || y >= 1.8;
   if (isHead) {
     // 头和脖子最上一节的交界处稍微过渡一下
     const k = y < 1.75 && z > nz - 0.14 && z < nz + 0.14 ? ss(HEAD_Y, 1.75, y) : 1;
@@ -117,7 +125,8 @@ for (let i = 0; i < n; i++) {
     continue;
   }
   // ---- 脖子：胸前往上那根细管
-  if (y >= 1.26 && Math.abs(z - nz) < 0.15 + 0.12 * ss(1.42, 1.26, y) && Math.abs(x) < 0.12 + 0.1 * ss(1.42, 1.26, y) && z > zs(0.2)) {
+  // 只取脖子那根细管本身。脖根前下方垂着一束胸饰羽，不能算进脖子：否则飞行时脖子前伸，饰羽的上半截被带走、下半截留在身体上，会被拉成一片三角形
+  if (y >= NECK_FROM && Math.abs(z - nz) < 0.13 && Math.abs(x) < 0.11) {
     const N = RIG.neck;
     let k = 0; while (k < 3 && y > N[k + 1][0]) k++;
     const t = Math.min(1, Math.max(0, (y - N[k][0]) / (N[k + 1][0] - N[k][0])));
@@ -126,7 +135,7 @@ for (let i = 0; i < n; i++) {
     if (t < 0.5 && k > 0) { const w = 0.5 - t; pairs[0][1] = 1 - w; pairs.push([BONE['neck' + (k - 1)], w]); }
     else if (t >= 0.5 && k < 3) { const w = t - 0.5; pairs[0][1] = 1 - w; pairs.push([BONE['neck' + (k + 1)], w]); }
     // 脖根：和身体过渡
-    const wb = ss(1.4, 1.26, y);
+    const wb = ss(NECK_FROM + 0.1, NECK_FROM, y);
     if (wb > 0.001) { for (const q of pairs) q[1] *= 1 - wb; pairs.push([BONE.body, wb]); }
     set(i, pairs); tag('neck');
     continue;
