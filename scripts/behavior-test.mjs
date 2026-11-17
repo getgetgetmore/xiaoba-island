@@ -31,7 +31,8 @@ function report(name, ok, detail) {
 const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : String(n));
 
 // ---------------------------------------------------------------- 世界
-async function makeWorld({ hour = 12, weather = 'clear', seed = SEED } = {}) {
+// restScale：长时间行为（晒太阳 10–18 分钟、午睡 10–20 分钟……）的时长倍率。默认调到 0.1，一轮能在一两分钟内跑完；R 组用 1 按真实时长跑。
+async function makeWorld({ hour = 12, weather = 'clear', seed = SEED, restScale = 0.1 } = {}) {
   const errors = [];
   const ctx = {
     scene: new THREE.Scene(),
@@ -46,6 +47,7 @@ async function makeWorld({ hour = 12, weather = 'clear', seed = SEED } = {}) {
   if (weather === 'rain' || weather === 'storm') ctx.env.setWeather(weather, { instant: true });
   const used = await loadWorld(ctx, { errors, real: only });
   const baseStep = createStepper(ctx, errors);
+  if (ctx.brain && 'restScale' in ctx.brain) ctx.brain.restScale = restScale;
 
   // 昆虫：真实实现里没有蝴蝶时注入假蝴蝶（stub 的 targets 为空数组）
   const startles = [];
@@ -150,7 +152,8 @@ const baseState = (s) => s.split(':').slice(0, 2).join(':');
 
 // ---------------------------------------------------------------- a) 正午晴天 180 秒
 async function testA() {
-  const w = await makeWorld({ hour: 12, weather: 'clear' });
+  // 从 11:00 开始：最长要观察 22 分钟，从 12:00 开始会跑进午睡时段（12:15 起），那时精力低、基本不追蝴蝶
+  const w = await makeWorld({ hour: 11, weather: 'clear' });
   const { ctx } = w;
   const seen = new Set();
   const r = run(w, 420, { onFrame: () => seen.add(baseState(ctx.brain.state)) });
@@ -160,7 +163,7 @@ async function testA() {
   // 没轮到就继续观察，最多再等 900 秒（连续性等检查照常进行）。
   for (let k = 0; k < 9 && w.startles.length < 1; k++) run(w, 100);
   const chased = w.startles.length >= 1;
-  report('a1 正午晴天 420s 出现过 run', hasRun, `actions=[${[...rec.actions].join(',')}]`);
+  report('a1 晴天上午 420s 出现过 run', hasRun, `actions=[${[...rec.actions].join(',')}]`);
   report('a2 出现过 roll', hasRoll);
   report('a3 至少一次追蝴蝶 (critters.startle 被调用)', chased, `startle 调用 ${w.startles.length} 次`);
   report('a4 全程 walkable / 无 NaN / 单帧位移 ≤ 最高速度×dt×1.5', rec.violations.length === 0 && w.errors.length === 0,
@@ -382,7 +385,7 @@ function climbToTop(w, limit = 60) {
 }
 
 async function testL() {
-  const w0 = await makeWorld({ hour: 12, weather: 'clear' });
+  const w0 = await makeWorld({ hour: 12, weather: 'clear', restScale: 0.2 }); // 眺望 1–2 分钟 × 0.2 = 12–24 秒
   if (!hasLookout(w0)) { console.log('SKIP  L1–L3：当前小岛/brain 没有 lookout（stub）'); return; }
   // L1
   {
@@ -457,7 +460,7 @@ async function testM() {
     run(w, 1);
     ctx.brain.force('sunbathe');
     let maxAway = 0, acc = 0, sawRoll = false;
-    const r = run(w, 300, {
+    const r = run(w, 420, {
       onFrame: () => {
         maxAway = Math.max(maxAway, matHome(ctx));
         if (lyingOnMat(ctx)) { acc += DT; if (ctx.dog.action === 'roll') sawRoll = true; }
@@ -513,7 +516,7 @@ async function testM() {
       `到 front ${f2(r1.t)}s, 一轮 ${f2(r2.t)}s [${[...seen].join(',')}], 垫子最大单帧位移 ${f2(w.rec.matMax)}; ${w.rec.violations.join(' | ')}`);
     // 之后让它自己恢复：10s 超时收起木棍后，垫子最终要回窝（状态机不卡死）
     run(w, 12);
-    const r3 = run(w, 300, { until: () => matHome(ctx) < 0.3 && ctx.brain.mode === 'auto' });
+    const r3 = run(w, 420, { until: () => matHome(ctx) < 0.3 && ctx.brain.mode === 'auto' });
     report('M3b fetch 结束后状态机不卡死（垫子最终回到 home）', r3.hit, `耗时 ${f2(r3.t)}s, 垫子距 home ${f2(matHome(ctx))}, state=${ctx.brain.state}`);
     if (!r3.hit) console.log('      最近状态: ' + summarize(w.rec.states.slice(-30), 30) + ' mover=' + JSON.stringify(ctx.brain.mover && { x: ctx.brain.mover.x, z: ctx.brain.mover.z, hasGoal: ctx.brain.mover.hasGoal, speed: ctx.brain.mover.speed, blocked: ctx.brain.mover.blocked, inKennel: ctx.brain.mover.inKennel, onRamp: ctx.brain.mover.onRamp }));
   }
@@ -646,6 +649,7 @@ async function testGame() {
   report('Q4b 退出后 25 秒：自主行为正常进行（出现 auto 行为）、无违规（walkable / 单帧位移 / 贴地）', w.rec.violations.length === 0 && w.rec.states.length > 0 && w.errors.length === 0 && /^auto:/.test(brain.state), `state=${brain.state}; ${w.rec.violations.slice(0, 3).join(' | ')}`);
   // Q5：下雨 → 通知 controller（一次）；雨天 canGame 为假、enterGame 被拒；exitGame 后回窝
   need = 0; ph = 0;
+  run(w, 90, { until: () => brain.canGame() }); // 刚好叼着垫子时不能接管：等它放下
   const ok2 = brain.enterGame(ctl);
   for (let i = 0; i < 30; i++) step(DT);
   ctx.env.setWeather('rain', { instant: true });
@@ -658,6 +662,78 @@ async function testGame() {
   report('Q6 小游戏接管全过程无报错', w.errors.length === 0, w.errors.map((e) => e.module + ':' + e.message).join(' | '));
 }
 
+// ---------------------------------------------------------------- R) 长时间行为：按真实时长（restScale = 1）跑
+async function testRest() {
+  const min = (s) => (s / 60).toFixed(1) + ' 分钟';
+  const probe = await makeWorld({ hour: 10.5, weather: 'clear', restScale: 1 });
+  if (!probe.ctx.brain || !('restScale' in probe.ctx.brain)) { console.log('SKIP  R1–R5：当前 brain 没有长时间行为（stub）'); return; }
+  const onMat = (ctx) => (ctx.dog.action === 'lie' || ctx.dog.action === 'sleep' || ctx.dog.action === 'roll') && matDog(ctx) < 0.4;
+  // R1：晒太阳
+  if (hasMat(probe)) {
+    const w = probe, { ctx } = w;
+    run(w, 1);
+    ctx.brain.force('sunbathe');
+    let acc = 0, rolls = 0, last = '';
+    const r = run(w, 1800, {
+      onFrame: () => { if (onMat(ctx)) acc += DT; if (ctx.dog.action === 'roll' && last !== 'roll') rolls++; last = ctx.dog.action; },
+      until: () => acc > 5 && matHome(ctx) < 0.3 && !ctx.brain.state.startsWith('auto:sunbathe'),
+    });
+    report('R1 晒太阳：在垫子上连续待 ≥ 10 分钟，之后把垫子叼回窝；全程无违规', r.hit && acc >= 600 && w.rec.violations.length === 0 && w.errors.length === 0,
+      `垫子上 ${min(acc)}（翻身 ${rolls} 次），整轮 ${min(r.t)}, state=${ctx.brain.state}; ${w.rec.violations.join(' | ')}`);
+  } else console.log('SKIP  R1 / R4：当前小岛没有垫子（stub）');
+  // R2：午睡
+  {
+    const w = await makeWorld({ hour: 12.4, weather: 'cloudy', restScale: 1, seed: SEED + 21 });
+    const { ctx } = w;
+    run(w, 1);
+    ctx.brain.force('nap');
+    let acc = 0, stirs = 0, last = '';
+    const r = run(w, 1500, {
+      onFrame: () => { const nap = ctx.brain.state.startsWith('auto:nap'); if (nap && (ctx.dog.action === 'sleep' || ctx.dog.action === 'lie')) acc += DT; if (nap && ctx.dog.action === 'lie' && last === 'sleep') stirs++; last = ctx.dog.action; },
+      until: () => acc > 5 && !ctx.brain.state.startsWith('auto:nap'),
+    });
+    report('R2 午睡：一觉 ≥ 10 分钟，睡完自己起来；全程无违规', r.hit && acc >= 600 && w.rec.violations.length === 0, `睡了 ${min(acc)}（中途抬头 ${Math.max(0, stirs - 1)} 次）, state=${ctx.brain.state}; ${w.rec.violations.join(' | ')}`);
+  }
+  // R3：晚间在窝门口歇着
+  {
+    const w = await makeWorld({ hour: 20, weather: 'clear', restScale: 1, seed: SEED + 22 });
+    const { ctx } = w;
+    run(w, 1);
+    ctx.brain.force('evening');
+    let acc = 0; const poses = new Set();
+    const r = run(w, 900, {
+      onFrame: () => { if (ctx.brain.state.startsWith('auto:evening') && (ctx.dog.action === 'lie' || ctx.dog.action === 'sit')) { acc += DT; poses.add(ctx.dog.action); } },
+      until: () => acc > 5 && !ctx.brain.state.startsWith('auto:evening'),
+    });
+    report('R3 晚间歇息：一次 ≥ 6 分钟，中间会换姿势', r.hit && acc >= 355 && poses.size === 2, `歇了 ${min(acc)}, 姿势 [${[...poses].join(',')}], state=${ctx.brain.state}`);
+  }
+  // R4：晒着太阳时过了下午四点 → 起来把垫子叼回去
+  if (hasMat(probe)) {
+    const w = await makeWorld({ hour: 10.5, weather: 'clear', restScale: 1, seed: SEED + 23 });
+    const { ctx } = w;
+    run(w, 1);
+    ctx.brain.force('sunbathe');
+    const r0 = run(w, 200, { until: () => ctx.brain.state === 'auto:sunbathe:sleep' });
+    run(w, 30);
+    ctx.env.setHour(16.2);
+    const r1 = run(w, 10, { until: () => /sunbathe:(wake|haul)/.test(ctx.brain.state) });
+    const r2 = run(w, 200, { until: () => matHome(ctx) < 0.3 && !ctx.brain.state.startsWith('auto:sunbathe') });
+    report('R4 晒太阳途中太阳没了（拨到 16:12）：10 秒内起来，垫子叼回窝', r0.hit && r1.hit && r2.hit && w.rec.violations.length === 0, `起来 ${f2(r1.t)}s, 收垫子 ${f2(r2.t)}s; ${w.rec.violations.join(' | ')}`);
+  }
+  // R5：午睡的时段过了（拨到 15:12）→ 起来
+  {
+    const w = await makeWorld({ hour: 12.4, weather: 'cloudy', restScale: 1, seed: SEED + 24 });
+    const { ctx } = w;
+    run(w, 1);
+    ctx.brain.force('nap');
+    const r0 = run(w, 120, { until: () => ctx.brain.state.startsWith('auto:nap') && ctx.dog.action === 'sleep' });
+    run(w, 30);
+    ctx.env.setHour(15.2);
+    const r1 = run(w, 10, { until: () => !ctx.brain.state.startsWith('auto:nap') });
+    report('R5 午睡途中时段过了（拨到 15:12）：10 秒内起来', r0.hit && r1.hit, `入睡 ${r0.hit}, 起来 ${f2(r1.t)}s, state=${ctx.brain.state}`);
+  }
+}
+
 async function main() {
   console.log(`行为测试：seed=${SEED}；真实模块：${only ? [...only].join(',') || '(无)' : '全部'}`);
   const probe = await makeWorld({});
@@ -666,7 +742,7 @@ async function main() {
     console.log('  注意：brain 或 stick 回退到了 stub，下面的结果不代表 WP5 实现');
   }
   const t0 = Date.now();
-  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['P', testP], ['Q', testGame]]) {
+  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['R', testRest], ['P', testP], ['Q', testGame]]) {
     console.log(`--- ${name}`);
     try { await fn(); } catch (e) { report(`${name} 测试异常`, false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e)); }
   }

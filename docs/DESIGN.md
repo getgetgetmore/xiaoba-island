@@ -196,7 +196,7 @@ createDog(ctx) → {
 | roll | 循环 | 仰面在草地上扭动打滚，四脚朝天蹬 |
 | spin | 循环 | 兴奋：原地小碎步弹跳、尾巴狂摇、张嘴吐舌（**转圈的 heading 由 brain 旋转**） |
 | playbow | 循环 | 前身压低、屁股翘起、尾巴狂摇（邀玩） |
-| sniff | 循环 | 低头嗅，鼻子小幅左右动 |
+| sniff | 循环 | 嗅探，一轮约 4.6 秒：鼻子在草尖上往前探、左右大幅度扫（前脚跟着挪小碎步），然后抬头、鼻尖朝上冲着空气嗅两下、歪歪头再低下去；全程闭嘴、耳朵朝前、尾巴摇得欢。要和 drink（吃饭 / 喝水：站定、头埋下去一点一点、张嘴伸舌头）一眼分得开 |
 | drink | 循环 | 低头舔水 |
 | pounce | 一次性 ≈0.7s | 向前扑跃（位移由 brain 做，模型只做姿态+内部纵向弧线） |
 | pickup | 一次性 ≈0.5s | 低头叼起 |
@@ -229,8 +229,8 @@ createBrain(ctx) → { update(dt, env), mode /*'auto'|'fetch'*/, state /*字符�
 
 **3.8.1 扩展：新增自主行为与调试入口**（`src/dog/brain/lookout.js`、`matCtl.js`、`matBehaviors.js`；`anchors.lookout` / `island.mat` 不存在时自动跳过）
 
-- `lookout`（晴 3 / 阴 2；下雨、夜里 22–6 点不选）：走到坡道底端 `base` → 面向 `rampFacing` → 沿 `base→top` 直线走上平台（walk，0.85）→ 转向某个 `viewFacings` → 坐（sit）/站（idle）交替眺望 12–24 秒，`lookAt` 缓慢扫视（左、右、远方）→ 转身沿原路走下（0.8）→ 回到 `base`。晚霞（`sunsetFactor > 0.4`）时优先朝西并多坐着。阶段：`goto / align / climb / turn / watch / stand / descend`。
-- `sunbathe`（9–16 点、`cloudiness < 0.5`、不下雨、垫子静止；晴天 3.5，12:30–14:30 为 7，垫子已在窝外时 ×2 起并随时间增加；窝里的垫子会压低 `nap`）：走到 `kennelDoor` → 进窝 → `pickup` 叼垫子 → 以 0.55–0.7 的速度拖到草坪上一个晒太阳的点（离狗窝 ≥ 3、离 front ≥ 2、离所有障碍/坡道够远）→ 松口落平 → 走到垫子上转小半圈 → `lie` → `sleep`（中途偶尔 `roll` 2–4 秒）共 20–40 秒 → `playbow` 伸懒腰 → 叼回窝里放回 `home` → 出窝。阶段：`goto / inside / turn / pick / drag / drop / toMat / circle / lie / sleep / roll / lie2 / wake / haul`（haul 内部再分 pick/haul/haulin/place/out）。
+- `lookout`（晴 3 / 阴 2；下雨、夜里 22–6 点不选）：走到坡道底端 `base` → 面向 `rampFacing` → 沿 `base→top` 直线走上平台（walk，0.85）→ 转向某个 `viewFacings` → 坐（sit）/站（idle）交替眺望 1–2 分钟（刚下来的 10 分钟里不再上去），`lookAt` 缓慢扫视（左、右、远方）→ 转身沿原路走下（0.8）→ 回到 `base`。晚霞（`sunsetFactor > 0.4`）时优先朝西并多坐着。阶段：`goto / align / climb / turn / watch / stand / descend`。
+- `sunbathe`（9–16 点、`cloudiness < 0.5`、不下雨、垫子静止；晴天 3.5，12:30–14:30 为 7，垫子已在窝外时 ×2 起并随时间增加；窝里的垫子会压低 `nap`）：走到 `kennelDoor` → 进窝 → `pickup` 叼垫子 → 以 0.55–0.7 的速度拖到草坪上一个晒太阳的点（离狗窝 ≥ 3、离 front ≥ 2、离所有障碍/坡道够远）→ 松口落平 → 走到垫子上转小半圈 → `lie` → `sleep`（每隔 1–2.5 分钟 `roll` 翻个身、趴着看一会儿再睡）共 10–18 分钟（到饭点、转阴或过了 16 点会提前起来）→ `playbow` 伸懒腰 → 叼回窝里放回 `home` → 出窝。阶段：`goto / inside / turn / pick / drag / drop / toMat / circle / lie / sleep / roll / lie2 / wake / haul`（haul 内部再分 pick/haul/haulin/place/out）。
 - `fetchMat`：垫子静止在窝外且不适合晒太阳（阴天、傍晚、夜里前）时权重很高：走到垫子上 → 叼起 → 拖回窝里放好 → 出窝。
 - 抢救垫子：开始下雨且垫子在窝外、离狗 < 6 时，避雨流程先跑去叼上垫子再跑回窝（`kennel` 的 `rescueGo / rescuePick` 阶段）。
 - 中断规则：任何行为被打断（下雨、木棍召唤、夜里……）时，若正叼着垫子，垫子**就地平滑落平**（0.35s）；在坡道/平台上时，`mover.onRamp` 机制保证 goal 为普通 nav 时先沿坡道中线走回 `base`（被召唤/避雨可较快，≤1.7），再继续——全程位置连续。
@@ -422,7 +422,7 @@ createBrain(ctx) → { update(dt, env), mode /*'auto'|'fetch'*/, state /*字符�
 - `src/minigame/fishSim.js` 纯逻辑（Node 可跑）：`createFishSim({ rng, casts, forceBottle, allowPrank })` → `update(dt, { click, hold })`、阶段 / 计时 / 信号（fake / real / warn / struggle）/ 进度 / 尾巴疼 / 事件队列 / `result()`。`src/minigame/fishBot.js` 机器人（熟练 / 乱点 / 只会按住 / 什么都不做 / 抢点）。测试：`node scripts/fish-test.mjs`。
 - `src/minigame/fishing.js` 入口 `createFishing(ctx)` → `{ active, start(), stop(aborted), abort(), update(dt), sim, view }`：流程、输入、小狗的 controller、出水反应脚本、大鱼反拉、奖励口子；`fishing/hud.js` DOM 界面（顶部 6 个小圆点 + 得分 + 退出，底部提示 / 拉力条 / 尾巴疼条，出水卡片，漂流瓶纸条，结算）；`fishing/loot.js` 战利品模型（青蛙 / 螃蟹优先用 `world/island/pondlife.js`，通过 `import.meta.glob` 懒加载，缺失时用占位）；`fishing/fx.js` 涟漪 / 飞沫 / “!” / 鱼线 / 架子上的浮漂；`fishing/store.js` 本地存储（Node / 无痕模式安全降级）；`fishing/icons.js` 图标。
 - 小狗接管：`brain.enterGame(controller)` / `brain.exitGame()` / `brain.canGame()` / `brain.needKennel()`；接管期间 brain 每帧只调用 `controller.update(dt, S)` 和 `mover.update(dt)`，`canPet()` 为 false，需要回窝（下雨 / 深夜）时调用 `controller.onNeedKennel(why)`。`mover.goStraight(x, z, { free: true })` 是不走窝门 / 坡道入口的脚本化直线段（钓鱼点在池塘障碍圆内的水边）。
-- 模型外部钩子（默认 0 时与原来完全一致）：`dog.tailDrop`（0..1，把尾巴放下来向身后下方伸出）、`dog.tailTug`（-1..1，被拽的抖动 / 绷直 / 松垮）、`dog.earPerk`（0..1，耳朵竖起）。小鱼的引诱点：`island.group.getObjectByName('pondFish').userData.pond` 上的 `setLure({x,z}, 强度)` / `strike()` / `release()` / `scatter(秒)` / `ripple()`（不设引诱点时小鱼行为与原来完全一致）。
+- 模型外部钩子（默认 0 时与原来完全一致）：`dog.tailDrop`（0..1，把尾巴放下来向身后下方伸出）、`dog.tailTug`（-1..1，被拽的抖动 / 绷直 / 松垮）、`dog.earPerk`（0..1，耳朵竖起）、`dog.noseDown`（0..1，边走边闻：叠在走路动作上，头压低、鼻子贴地左右扫、尾巴摇；嗅探行为挪步时用）。小鱼的引诱点：`island.group.getObjectByName('pondFish').userData.pond` 上的 `setLure({x,z}, 强度)` / `strike()` / `release()` / `scatter(秒)` / `ripple()`（不设引诱点时小鱼行为与原来完全一致）。
 - 调试：URL `game=fishing` 启动后自动开始（小狗直接就位）；`__pet.fishing.start({ instant, seed, forceBottle, allowPrank, queue, test })`、`__pet.fishing.debugNext('crab' | 'prank' | ...)` 指定当前（尚未提竿的）这一钩钓到什么、`__pet.fishing.setBot('skilled')` 自动驾驶、`__pet.fishing.info()`。
 
 奖励口子（与遛狗一致）：结算时 `result = { game:'fishing', completion, stars, tier, score, casts: 6, landed, missed, catches:[{ id, name, rarity, points }], bottle: 寄语对象|null, prank: bool, aborted }`，正常结束 → `ctx.rewards.grant(result)` + `window` 事件 `pet:minigame-finished`；中途退出（Esc / ✕ / 下雨）→ 只派发事件（`aborted: true`），不调用 grant。完成度 = round(100 × (0.7 × 钓上来的钩数 / 6 + 0.3 × min(1, 得分 / 60)))；≥85 三星、≥60 二星、其余一星。
@@ -443,6 +443,20 @@ createBrain(ctx) → { update(dt, env), mode /*'auto'|'fetch'*/, state /*字符�
 | 18:00–19:30 | 晚饭（只吃一次），之后看晚霞 |
 | 19:30–22:00 | 在窝门口趴着 / 坐着看萤火虫，不再疯跑 |
 
+- 长时间行为的时长（`S.rest(下限, 上限)`，单位秒；到饭点一律提前结束去吃饭）：
+
+  | 行为 | 一次多久 | 中途 | 提前结束 |
+  | --- | --- | --- | --- |
+  | 晒太阳 `sunbathe`（在垫子上睡） | 10–18 分钟 | 每 1–2.5 分钟翻个身、趴着看一会儿 | 转阴、下雨、过了 16 点 |
+  | 午睡 `nap` | 10–20 分钟 | 每 1–2.5 分钟抬头看看又睡过去 | 过了 15 点 |
+  | 晚间歇息 `evening` | 6–12 分钟 | 每 1–2 分钟在趴着 / 坐着之间换姿势 | 22 点回窝 |
+  | 看晚霞 `sunset` | 4–8 分钟 | — | 晚霞散了 |
+  | 眺望 `lookout` | 1–2 分钟 | 坐 / 站交替 | — |
+  | 坐着歇息 `sit` | 10–20 秒，精力低时最多到 2.5 倍 | — | — |
+
+- 白天的觉：晒太阳算在睡觉里，和午睡是同一件事（`S.napUrge()`、`S.sleptAt`）。睡完一觉（不管哪种）以后，午睡时段（12:15–14:45）隔 8 分钟、其余时间隔 25 分钟才会再睡，再往后 20 分钟里也少选；精力最旺时（约 7:15–10:00）晒太阳的权重再 ×0.25。按真实时长连续模拟一整天：白天睡觉合计约 3 小时（上午每小时 15–25 分钟，午睡时段每小时 35–40 分钟）。被摸、被叫去玩打断的觉不算睡完，之后会回去接着睡。
+- `brain.restScale`（默认 1）是测试用的时长倍率：`scripts/behavior-test.mjs` 默认用 0.1 好快速跑完一轮，其中 R 组用 1 按真实时长检查（晒太阳 / 午睡一次 ≥ 10 分钟、晚间歇息 ≥ 6 分钟、太阳没了 / 午睡时段过了会起来）。
+- 嗅探 `sniff`（一轮 12–22 秒）：从 `sniffSpots`（树根、花丛、灌木旁）里挑一处走过去 → 站着闻 2–3.5 秒 → 鼻子贴着地面慢慢挪几步（速度 0.45，`dog.noseDown = 1` 叠在走路动作上：头压低、左右扫、尾巴摇）换个位置接着闻，一处挪 1–2 次 → 再去下一处。它不是在吃东西：饭碗只在窝门口，吃饭只发生在饭点。
 - 精力曲线 `ENERGY`：清晨、傍晚两个高峰，中午低谷，晚上递减；`S.energy` 乘进撒欢、打滚、追蝴蝶、闲逛、嗅探的权重，坐着歇息的权重反向变化。
 - 饭点由 `S.mealDue` 表示；离开饭点时段后“吃过了”的标记清零，所以手动拨时间也能重复触发。下雨时不吃（在窝里躲雨）。
 - 狗碗里的狗粮是单独的网格，`island.bowl.setLevel(0..1)` 控制：到饭点盛满，吃的过程中减少，吃完为空。
@@ -502,3 +516,261 @@ createBrain(ctx) → { update(dt, env), mode /*'auto'|'fetch'*/, state /*字符�
 - `egret.js` 里飞行模型有自己的一副小骨架，挂在主骨架的 body 骨头下面；`1 - ground` 超过 0.5 时显示它、隐藏站立模型。翅膀的上扬角由原来的扇翅参数驱动；驮着小狗（`carry`）时翅膀压低、幅度减小。
 - 飞行模型没加载到时，空中仍用站立模型 + 程序生成的翅膀。
 - 站立模型的修正：后脑的长饰羽只有靠近头的一段跟着头，越往后越跟着身体（之前整条绑在头上，飞行时会把背上的面扯成一片挂在脖子下面的三角形）。
+
+## 农场捣乱小游戏（替换原来的遛狗跑酷）——画面与角色设定
+
+玩法脚本另见后文（待补）；这一节先定画面和角色，交付“角色阵容图 + 游戏画面样张”给用户确认后再做玩法。
+
+### 画面
+
+- 粗块的 3D 像素风：所有东西由小方块搭成，1 个方块 = 1/16 世界单位；纯色（顶点色）、无贴图、无渐变，平直着色（每个面一个明暗）。
+- 低分辨率渲染后用最近邻放大（内部高度约 216 像素），边缘是清晰的像素格；阴影也是硬边。
+- 暖色农场配色，全部颜色集中定义在一张调色板里（三十来种）：草绿两档、土黄、谷仓红、木头棕、天蓝、云白、庄稼绿、南瓜橙等。
+- 镜头在小柴身后偏上方，看得到前方一段路；天空是纯色加几朵方块云。
+
+### 角色（高度以方块数计，小柴约 12 个方块高、16 个方块长）
+
+| 角色 | 样子 | 动作 |
+| --- | --- | --- |
+| 小柴 `shiba` | 橘色身体，白脸颊 / 胸口 / 肚子 / 四只白袜，三角立耳，卷尾巴（尾尖白），黑豆眼黑鼻，红项圈金铃铛，身后拖一截断掉的红牵引绳；`muddy` 选项 = 泥狗配色 | idle、run、pounce（前扑）、dig（刨地）、held（被拎着后颈）、roll（打滚） |
+| 小鸡 `chick` | 黄色小方块，橙喙橙脚，黑眼 | idle、run（小翅膀扑腾）、flap（受惊跳起） |
+| 母鸡 `hen` | 白身体，红鸡冠红肉垂，黄喙 | idle、run、peck（追着啄） |
+| 管理员 `farmer` | 草帽、红格子衬衫、蓝背带裤、黑雨靴、小胡子，手举扫帚；`angry` 时脸变红 | idle、run（举着扫帚追）、grab（弯腰抓）、stumble（被绊倒） |
+| 大鹅 `goose` | 白色长脖子，橙色喙和脚 | idle、run（张翅、压低头冲）、honk |
+| 猪 `pig` | 粉色，深粉鼻子，卷尾 | idle、run |
+| 羊 `sheep` | 白色蓬松羊毛（表面凹凸），黑脸黑腿 | idle、run、jump（受惊跳开） |
+| 奶牛 `cow` / 公牛 `bull` | 黑白花；公牛棕色、带角、鼻环 | idle、run（公牛低头冲） |
+| 蜂群 `bees` | 一团黄黑小方块 | fly |
+
+### 场景物件 `prop`
+
+红谷仓（白边）、鸡舍、木栅栏段、栅栏门、方草垛、圆草垛、菜畦（萝卜 / 卷心菜 / 南瓜三种）、拔出来的大萝卜、晾衣绳 + 床单、苹果树、蜂箱、泥塘、水塘、奶桶、手推车、稻草人、风车、篱笆洞、地面块（草地 / 土路）。
+
+### 模块（子模型做，只新增这些文件）
+
+- `src/minigame/farm/palette.js`：调色板 `PAL`。
+- `src/minigame/farm/voxel.js`：方块建模工具（按方块坐标加盒子、合并成一个带顶点色的几何，平直着色）。
+- `src/minigame/farm/models.js`：`createFarmModel(kind, opts)` → `{ group, parts, update(dt), setAction(name), action, size: { w, h, l } }`；原点在脚下地面中心，头朝本地 +Z；`FARM_MODELS` 列出全部种类和各自的动作。
+- `src/minigame/farm/props.js`：`createFarmProp(kind, opts)` → `THREE.Object3D`（静态，原点在底面中心）；`FARM_PROPS` 列出全部种类。
+- `src/minigame/farm/pixel.js`：`createPixelPass(renderer, { height })` → `{ render(scene, camera), setSize(w, h), dispose() }`：低分辨率渲染 + 最近邻放大。
+- `scripts/farm-shot.eval.js`：配合 `scripts/shot.cjs` 出图。
+
+### 验收标准（这一步）
+
+1. 角色阵容图 `shots/farm/lineup.png`：全部角色站成一排（小柴含普通和泥狗两版，管理员含普通和生气两版），像素风渲染，每个角色一眼能认出是什么；小柴必须能认出是柴犬（橘白配色、立耳、卷尾）。
+2. 游戏画面样张 `shots/farm/scene.png`：镜头在小柴身后偏上方，小柴在土路上奔跑，前方几只四散的小鸡和一只母鸡，后方举着扫帚追的管理员，两侧有栅栏、菜畦、草垛、谷仓、苹果树，远处风车；画面读得清、不杂乱。
+3. 动作图 `shots/farm/actions-<角色>.png`：每个角色的每个动作各一帧（拼在一张图里），run 取两帧能看出腿在交替。
+4. 像素感：放大看是整齐的像素格，没有模糊；颜色都来自调色板；没有贴图。
+5. 技术：每个角色由若干刚性部件组成（身体、头、四肢、尾巴等，≤ 10 个部件网格，共用同一个材质），动作靠逐帧设置部件的位置 / 旋转；每个角色三角形 ≤ 1500（管理员 ≤ 2500）；每个物件 1 个网格；`update` 内不分配对象；各动作连续跑 600 帧无 NaN、页面无报错。
+
+### 第一步先出：农场全景图
+
+用户要求先看农场全景。全景图 `shots/farm/panorama.png`（1600×900）：从高处斜着俯视整个农场，一条土路从左下的农场大门蜿蜒到右上的篱笆出口，沿路依次是六个区域——
+
+1. 鸡舍前院：鸡舍、食槽、围栏；
+2. 菜地：成排的菜畦（萝卜、卷心菜、南瓜），稻草人；
+3. 晾晒场和果园：晾衣绳上的白床单、苹果树、蜂箱、小水塘；
+4. 谷仓和牛棚：红色大谷仓（白边）、草垛堆、奶桶、手推车；
+5. 猪圈和羊圈：泥塘、围栏；
+6. 出口：一长排篱笆，中间一个狗能钻过去的洞；远处一座风车。
+
+验收：六个区域都看得出是什么、互相分得开；土路连贯；画面有层次（近处大、远处小），不空也不杂乱；像素感清晰（见上面第 4 条）；全景里三角形总数 ≤ 15 万，渲染无报错。这一步只做场景物件，角色（上表）放到下一步。
+6. 约束：只新增上面列出的文件和 `shots/farm/` 下的图，不改任何现有源码；不启动 / 结束桌宠进程，不运行 electron-builder，不写 `dist/`、`release/`。
+
+### 画面设定第二版（用户看过第一版全景后给了参考图，以此为准）
+
+参考：星露谷那一类浓郁细腻的像素画（斜俯视的农场）、带深色描边的像素动物、戴草帽的像素女孩。第一版的问题：太平、太像积木，细节少。场景仍然用 3D 方块搭，但渲染出来要有像素画的质感。
+
+**镜头**：斜俯视的正交相机（从南面向下看，俯角约 50–60°），小狗可以在整张地图上自由跑；游戏时画面只显示地图的一部分并跟着小狗移动。
+
+**质感**
+- 描边：物体和角色的轮廓有 1 像素的深色描边（后处理：按深度 / 法线 / 物体边界找边，描成比本色更深的颜色，不是纯黑）。
+- 明暗：每种材质 3–4 档颜色，暗部偏蓝紫、亮部偏黄，直接做进方块的颜色里（树冠的亮斑 / 暗斑、屋顶瓦片的层次、草地的深浅斑块）。
+- 配色更浓郁：深浅两三档的草绿、金黄色的土路、深青色的松树、粉色的花树、暖棕色的木头。
+- 地面细节：草丛、三叶草斑块、小花、石子、脚印；土路是弯曲的自然边缘（不是直角方格），不要棋盘格草地。
+- 树：圆团状、分层的树冠带叶片斑点；橡树、松树（深青色、塔形）、粉色花树、果树；灌木、树桩。
+- 栅栏：圆木桩 + 两道横杆。
+- 房子：木屋，瓦片屋顶（绿瓦 / 红瓦，瓦片有层次）、烟囱、带窗框的窗、门、门廊。
+- 水：池塘岸线不规则，中间颜色更深，有睡莲和芦苇。
+- 地图铺满画面，边缘用密林、石崖、溪流收住，不要悬空的平板。
+
+**大地图**（为以后的探索模式留底子；面积约为第一版的 2 倍以上，用弯曲的小路连起来）
+- 六个捣乱区域照旧：鸡舍前院、菜地、晾晒场和果园、谷仓和牛棚、猪圈和羊圈、带狗洞的篱笆出口。
+- 新增：花园（花坛、小径、长椅、花架拱门、小喷泉或鸟浴盆）；农户的房子（门廊、信箱、水井、柴堆）；树林，林间空地上是农户们正在盖房子的工地（搭了一半的木屋框架、脚手架、木料堆、锯木架）；池塘和小溪、小木桥；牧场；路牌；到处散落的小东西（树桩、石头、蘑菇、木桶、木箱）。
+
+**角色**（3D 方块搭，圆润的大头短腿比例，配色照参考图，靠描边读出轮廓）
+- 小柴（主角，含泥狗版）。
+- 管理员改为戴草帽的女孩：宽檐草帽（帽带）、棕色长卷发、白上衣、卡其色围巾或背带裤、雨靴，手里拿扫帚；生气时脸红。
+- 动物：白母鸡（红冠）、小鸡、绿头鸭（绿头、棕身、橙喙橙脚）、大鹅、粉猪、黑白奶牛、绵羊（蓬松白毛、浅棕脸）、羊驼（棕身、米白脖子和脸）、公牛。
+
+**这一轮的交付**
+- 场景（子模型 A）：重做 `palette.js` / `props.js` / `pixel.js`（加描边）/ `farm-shot.eval.js`，新增地图布局 `src/minigame/farm/map.js`（`buildFarmMap()` → `{ group, size, zones, paths }`）；出 `shots/farm/panorama.png`（整张地图）和两张游戏视角的近景 `shots/farm/view-garden.png`、`shots/farm/view-woods.png`。
+- 角色（子模型 B）：`src/minigame/farm/models.js`、`scripts/farm-chars-shot.eval.js`；出 `shots/farm/lineup.png`（全部角色站成一排，游戏的斜俯视镜头）和 `shots/farm/actions-<角色>.png`。
+- 验收：和参考图并排看，质感接近（有描边、有明暗层次、地面和树有细节、配色浓郁）；每个区域 / 角色一眼认得出；整张地图三角形 ≤ 40 万、任一游戏视角内 ≤ 15 万；无页面报错。
+
+## 农场（定稿方向）：画风、架构与预留接口
+
+用户看过方块版后的结论：方块搭的东西“太积木”。定稿做法：**圆润的 3D 造型（球、椭球、圆柱、圆锥拼的低面数模型）+ 卡通分档明暗 + 深色实线描边 + 低分辨率像素化**；地面仍用带颜色变化的地形网格。样张见 `scripts/farm-style-test.eval.js`（`shots/farm/style-round*.png`）。蜂群取消。玩家的宠物直接用岛上的小狗模型（`createDog`），不另做方块版。此后由主控自行判断、验收、执行。
+
+### 玩法（“捣乱”模式 caper，一局 5 分钟，大地图自由跑）
+
+- 开场：牵着绳走到农场大门，小柴挣脱，绳子拖在身后；之后直接操控小狗。
+- 操控：小狗朝鼠标所指的地面位置跑（离得越远跑得越快，贴近就停下）；左键 = 扑（短冲刺：扑鸡、撞翻东西、吓散动物）；在可以刨的地方按住左键 = 刨。Esc 退出。
+- 捣乱点分布在全图，各有分值，也会涨管理员的“火气”：追散鸡群 / 扑小鸡、刨萝卜（刨久了出大萝卜）、踩花坛、扯晾着的床单、撞翻奶桶和草垛、泥塘打滚（变泥狗，之后碰到的床单 / 石板地留泥爪印加分）、把猪羊从圈里吓出来、跳喷泉 / 池塘（洗掉泥）、撞工地的木料堆。每个区域有自己的小清单，清完有区域奖励。
+- 管理员（草帽女孩）：平时按路线巡视；看见（视野扇形）或听见（响动半径）捣乱就涨火气，满了开始追。甩掉她：脱离视线一段时间、钻灌木 / 草垛躲起来、钻她过不去的篱笆洞、过小溪绕路。被抓住：拎后颈、扣分、罚 3 秒；被抓 3 次提前结束。
+- 最后 60 秒“全场通缉”：管理员加一只大鹅一起追，出口的篱笆洞打开，钻出去有额外奖励；没钻出去时间到也结算。
+- 结算：按捣乱分算完成度和星级，沿用 `ctx.rewards.grant(result)` 和 `pet:minigame-finished`；中途退出不发奖励。
+
+### 分层
+
+| 层 | 文件 | 说明 |
+| --- | --- | --- |
+| 地图数据 | `farm/mapData.js` | 纯数据（不依赖 three）：尺寸、区域、路、碰撞体、水域、可互动物、出生点、躲藏点。画面和逻辑都读它 |
+| 地图画面 | `farm/map.js`、`props.js`、`palette.js`、`lighting.js` | 按 mapData 摆场景；`lighting.js` 给出各时段的灯光预设 |
+| 角色 | `farm/models.js` | 管理员和动物；宠物用 `createPetAvatar(profile)`（包一层 `createDog`） |
+| 时钟与规则 | `farm/clock.js`、`farm/rules.js` | 见下 |
+| 逻辑 | `farmSim.js`、`farmBot.js` | 纯逻辑、确定性、可序列化；只吃“指令”，不碰输入设备和画面 |
+| 联机 | `farm/net.js` | 见下；本版只有离线实现和测试用的假对端 |
+| 外壳 | `farm.js`、`farm/hud.js`、`farm/pixel.js` | 输入 → 指令、相机、像素化渲染、界面、阶段（开场 → 进行 → 结算）、和主程序的接口 |
+
+主程序接口沿用现在的小游戏约定：`createFarmGame(ctx)` → `{ active, scene, camera, start(opts), stop(aborted), update(dt), resize(w, h), render(renderer), shelfItem, sim }`；`render` 是新增的可选项（小游戏自己做像素化渲染时主程序调用它）。
+
+### 预留接口一：时段与模式（本版只做白天的 caper，其余是数据和接口）
+
+- `createFarmClock({ env, source })` → `{ hour, phase, weather, source, setSource(s), on('phase', fn) }`。`phase` ∈ `dawn | day | dusk | night`；`source`：`'env'`（默认，跟随岛上的时间和天气，即电脑时钟）、`'fixed'`（调试 / 剧情固定某个时刻）、`'host'`（联机时以房主的时间为准）。
+- `FARM_RULES[phase]`（`rules.js`，纯数据）：`{ lighting: 预设名, keeper: { awake, speed, visionRange, visionAngle, lantern }, animals: { chickens: 'roam' | 'roost', pigs, sheep }, spawns: [...], mischief: { 可用的捣乱点种类: 分值倍率 }, events: [...] }`。逻辑和画面只读这张表，不在代码里写死“白天 / 夜晚”。夜晚的设想（先只填表）：管理员提灯巡夜、视野 = 灯光范围，鸡回窝，萤火虫，可以偷鸡蛋，分值更高。
+- 模式 `FarmMode`：`{ id, enter(farm), exit(), update(dt), onEvent(e) }`，注册在 `farm.modes` 里。本版只有 `caper`；预留 `explore`（无计时的探索，逐步解锁区域和新内容）和 `social`（联机闲逛）。地图数据里的区域带 `tags` 和 `unlock` 字段给探索模式用。
+
+### 预留接口二：联机（本版不接真实网络）
+
+目标：每个人桌面上的宠物进到同一个农场，能互相看见、交流、一起玩。真实联机需要一台中转服务器（或点对点连接的信令服务器），这涉及部署和费用，要用户决定后才做；本版把客户端结构留好，以后接上不用重写。
+
+- 实体统一：`{ id, kind, owner: 'local' | 'remote' | 'npc', x, z, heading, speed, action, appearance }`。逻辑层只处理“指令”`{ id, moveTo: {x, z} | null, pounce, dig, emote, say }`，本地输入、机器人、网络收到的对端指令都走同一个入口。
+- 宠物资料 `PetProfile { id, name, species, appearance: { ... }, owner }`：进农场时带进来，`createPetAvatar(profile)` 按它生成模型。只包含宠物名和外观，不含任何个人信息。
+- `FarmNet` 接口：`{ connected, selfId, peers, join(room, profile), leave(), send(type, payload), on(type, fn), now() }`。消息种类：`profile`（进场）、`pose`（自己宠物的位置 / 朝向 / 动作，约每秒 10 次，对端做插值）、`cmd`（扑、刨、互动某个物件）、`emote`、`chat`、`world`（房主发：管理员、动物、可互动物的状态）、`time`（房主的农场时间）。
+- 权威划分：各客户端对自己的宠物位置说了算；管理员、动物、可互动物以房主为准（房主跑完整逻辑，其他人只跑自己的宠物并显示房主同步来的状态）。所以 `farmSim` 的状态要能 `snapshot()` / `applySnapshot()`，可互动物都有稳定的 `id`。
+- 本版实现：`createLocalNet()`（离线，没有对端）和 `createMockNet({ bots })`（测试用，本机模拟几只别人的宠物在农场里走动、发表情），用来验证“多只宠物同屏、名字牌、表情气泡”这条链路。
+- 社交接口 `farm.social`：`emote(id)`（叫、摇尾巴、爱心）、`say(text)`（限长、限频）、`follow(peerId)`（一起遛：跟着对方跑）；宠物头顶的名字牌和气泡。聊天以后接真实网络时要加屏蔽 / 举报，本版只留接口。
+
+### 约定一：地图数据 `src/minigame/farm/mapData.js`（纯数据，不依赖 three；坐标：原点在地图中心，+x 向东，+z 向南，单位 = 世界单位）
+
+```js
+export const FARM_MAP = {
+  size: { w: 64, d: 48 },                       // 可玩范围：x ∈ [-32, 32]，z ∈ [-24, 24]
+  zones: [{ id, name, x, z, r, tags: [], unlock: null }],
+  paths: [{ id, width, points: [[x, z], ...] }],
+  colliders: [                                  // 走不过去的东西（房子、栅栏、树干、石头、井…）
+    { id, kind, shape: 'circle', x, z, r } | { id, kind, shape: 'box', x, z, w, d, rot },
+  ],                                            // kind 里 'fence' 的可以带 gap: true（狗能钻、人不能过的洞）→ blocks: ['keeper'] 
+  water: [{ id, kind: 'pond' | 'stream', shape: 'circle' | 'poly', ... , depth: 'shallow' | 'deep' }], // 浅水能走（减速），深水狗能游、人绕路
+  interactables: [                              // 可以捣乱的东西，id 稳定（联机同步用）
+    { id, kind, zone, x, z, r, ...参数 },        // kind：radish_bed / flower_bed / clothesline / milk_can / hay_bale / mud_pit / fountain / lumber_pile / pen_gate / crate …
+  ],
+  hides: [{ id, kind: 'bush' | 'hay' | 'kennel', x, z, r }],   // 能躲的地方
+  spawns: {
+    gate: { x, z, heading },                    // 开场：大门口
+    exit: { x, z, r },                          // 篱笆洞
+    keeper: { home: { x, z }, patrol: [[x, z], ...] },
+    goose: { x, z },
+    animals: [{ id, kind: 'chick' | 'hen' | 'duck' | 'pig' | 'sheep' | 'cow' | 'alpaca' | 'bull', zone, x, z, count, roam: r, pen: 圈的 id 或 null }],
+  },
+};
+```
+`map.js` 按这份数据摆场景（纯装饰的树、花草不必都进数据，但凡是挡路的、能互动的、能躲的都必须在数据里，并且和画面位置一致）。
+
+### 约定二：逻辑层 `src/minigame/farmSim.js`（纯逻辑，不依赖 three / DOM；确定性：同样的种子和指令序列得到同样的结果）
+
+```js
+export const FARM = { DURATION: 300, WANTED_AT: 240, CAUGHT_MAX: 3, DOG_SPEED: 5.2, ... };   // 可调常量集中在这里
+createFarmSim({ map = FARM_MAP, rules, seed, mode = 'caper', test = {} }) → sim
+sim.addPet(profile, { owner: 'local' | 'remote' })  → petId        // 可以有多只宠物（联机预留）；caper 的计分只算 local 的那只
+sim.command(petId, { moveTo: { x, z } | null, pounce: bool, dig: bool, emote: id | null })   // 每帧 / 每次变化时调用
+sim.update(dt)                                                   // 固定步长内部细分
+sim.time, sim.phase ('intro' | 'play' | 'wanted' | 'done'), sim.finished
+sim.pets: [{ id, owner, x, z, heading, speed, action, muddy, hidden, held, stamina?, ... }]
+sim.keeper: { x, z, heading, action, anger (0..1), state: 'patrol' | 'suspicious' | 'chase' | 'search' | 'carry' | 'return', target }
+sim.goose: { active, x, z, heading, action }
+sim.animals: [{ id, kind, x, z, heading, action, loose, scared }]
+sim.objects: [{ id, kind, state, progress, ... }]                 // interactables 的状态
+sim.score, sim.caught, sim.zones: { [zoneId]: { done, total, cleared } }
+sim.events: [{ type, ... }]   sim.clearEvents()                  // 给画面 / 音效 / 界面用：'mischief' { kind, objectId, points, x, z } | 'alert' | 'chaseStart' | 'chaseEnd' | 'caught' | 'hide' | 'wanted' | 'escaped' | 'zoneCleared' | 'finished' …
+sim.result(aborted) → { game: 'farm', mode, completion (0..100), stars (0..3), score, caught, escaped, mischief: { kind: 次数 }, zonesCleared, duration, aborted }
+sim.snapshot() → 可 JSON 序列化的完整状态； sim.applySnapshot(s)
+sim.setRules(rules)                                              // 时段变化时换规则表
+```
+- 移动：宠物朝 `moveTo` 跑，带加减速和转向；碰撞体挡路时沿着边滑过去，不卡死；浅水减速、深水游泳（更慢）；`blocks: ['keeper']` 的洞只有宠物能过。
+- 管理员的寻路：在按地图数据生成的栅格上做 A*（参考 `src/dog/brain/mover.js` 里的做法），不能穿墙、不能过洞、过溪要走桥。
+- `src/minigame/farmBot.js`：`createFarmBot({ kind })` → `(sim, petId, dt) => command`，至少三档：`idle`（不动）、`random`（乱跑乱扑）、`skilled`（有计划地捣乱、被追时会跑会躲）。
+
+### 逻辑层的验收（`scripts/farm-test.mjs`，纯 Node 运行，不开浏览器）
+
+1. 确定性：同种子同机器人跑两遍，结果和事件序列完全一致；`snapshot` → 新 sim `applySnapshot` 后继续跑，结果与不中断的一致。
+2. 一局正好 300 秒结束（或被抓 3 次提前结束）；240 秒进入“全场通缉”，大鹅出现、出口打开。
+3. 机器人分档明显：`idle` 完成度 ≤ 5；`random` 在 15–55 之间；`skilled` ≥ 70 且被抓 ≤ 1 次（各取 8 个种子的中位数）。`skilled` 钻出口的比例 ≥ 60%。
+4. 管理员：不穿墙、不过洞、不涉深水（全程采样位置都在可走区域内）；视线被房子 / 树林挡住时不会凭空发现小狗；躲进灌木 / 草垛且她没亲眼看着进去时会丢失目标；追逐速度略低于小狗的全速、但小狗刨地 / 撞障碍时能追上。
+5. 小狗：全程不出地图、不进碰撞体内部；被 4 面围住的死角里不卡死（随机点对点跑 2000 次都能到达或停在最近处）。
+6. 每种捣乱点都能被触发并计分；泥狗 → 床单 / 石板地的连带加分生效；清完一个区域触发 `zoneCleared`。
+7. 多宠物：加入 3 只 `remote` 宠物各自发指令，不影响 `local` 的计分；性能：一次 `update(1/60)` 平均 ≤ 0.3 毫秒（Node）。
+
+### 农场：实现落地（与上面约定的差异和现状）
+
+- 入口仍是玩具架上的遛狗绳；原来的遛狗跑酷（`walk.js`、`walkSim.js` 等）已删除，`walk/geo.js`、`walk/leash.js` 因为钓鱼和玩具架还在用而保留。
+- 主程序接口：`createFarmGame(ctx)`，新增 `render(renderer)`（小游戏自己做像素化渲染，主程序在小游戏进行中调用它）；启动参数 `game=farm`、`farmNet=mock`。
+- 宠物直接借用岛上的小狗模型，进农场时临时换成卡通材质（`actors.js`），退出时换回；对端宠物用 `createDog` 另建实例。
+- 时段：`rulesFor(phase, { mode: 'caper' })` 本版一律返回白天的规则，灯光也固定为白天；`FARM_RULES` 里夜晚等时段的表已填好但没有启用。
+- 联机：只有 `createLocalNet`（离线）和 `createMockNet`（两只假对端）；对端宠物在逻辑层里是 `owner: 'remote'`，不计分、不会被抓。`farm.social` 提供 `emote / say / follow`。
+- 可互动物件的画面状态：`buildFarmMap().objects`（`setState`）由外壳每帧按 `sim.objects` 喂入。
+- 地图数据相对约定新增了 `bridges`、`terrain`、`props` 字段；`createFarmSim` 必须显式传入 `map`。
+- 尚未做：开场“牵着绳走到门口、挣脱”的动画（目前直接从大门口开始）、拖在身后的断绳、音效、泥爪印留在石板地上的持久痕迹、镜头的像素对齐。
+- 验证：`node scripts/farm-test.mjs`（逻辑层 86 项）。外壳的端到端检查（整局结算、退出复原、中途退出、互斥）是页面内脚本 `scripts/farm-flow.eval.js`，配合 `scripts/shot.cjs` 运行、人工看输出，还没有做成自动判定通过 / 未通过的测试。
+
+### 农场：操控与镜头（用户试玩后的调整，以此为准）
+
+鼠标（最新，覆盖下面“视角跟着鼠标转”里按鼠标位置算的写法）：
+- 游戏进行中（`phase === 'play'`）鼠标锁定在窗口里并隐藏（Pointer Lock，锁的是画布），鼠标移动只转镜头：按位移算，左右 = 绕小狗转（`LOOK_YAW` 弧度 / 像素，不限圈数），上下 = 抬头 / 低头（`LOOK_TILT`，-1..1 → 俯角和落点前移量）；仍有回差（`LOOK_BAND_YAW / LOOK_BAND_TILT`）。位移取自 `mousemove`（实测锁定状态下 `pointermove` 的 movementX / Y 是 0），`pointermove` 只在 mousemove 没送达时兜底。左键 = 扑、滚轮 = 缩放照旧。
+- 锁定要由用户操作触发：开局时先申请一次，没成功（开局动画隔得久 / 窗口不在前台）就在下一次按键或点击时再申请；没锁上期间光标也不显示（`cursor: none`），鼠标位移照样转镜头。
+- 放开：进入结算（要点“再来一局 / 退出”）和退出游戏时 `releaseLock()` 并恢复光标；“再来一局”重新锁上。
+- 暂停：窗口失去焦点（Alt+Tab、Win 键、点到别的窗口）时自动暂停（`setPaused`）——逻辑、动画、镜头、倒计时都停，画面停在最后一帧，盖一层“已暂停”的遮罩，光标恢复；回来以后点一下或按任意键继续（这一下只用来继续，不算扑 / 不算操作），并重新锁定鼠标；暂停时按 Esc 仍然是退出。只在 `phase === 'play'` 时暂停，结算界面不暂停。
+- Esc：锁定状态下系统先用 Esc 解锁、页面收不到这次按键，所以 `pointerlockchange` 里“不是自己放开的、窗口还在前台”就当作按了 Esc → 退出游戏；切到别的窗口造成的解锁不退出，回来后下一次按键 / 点击重新锁上。
+
+挡住小狗的树变半透明：
+- 树（`tree / apple_tree / pink_tree / pine`）都合并在地块网格里，没法单独换材质，所以合并时给每棵树的顶点写一个 `aOcc = (x, z, 半径, 高度)`（`map.js` 的 `SEE_KINDS`、`voxel.js` 的 `mergeStatic`），别的东西是 0。
+- 卡通材质（`props.js` 的 `farmToonMaterial.onBeforeCompile`）在顶点着色器里按“这棵树”判断：树根比小狗离镜头近、且在画面上盖住小狗 → 整棵树一起变透；片元按 2×2 抖动格子丢像素（`uSeeMax` = 0.7，最透时丢 3/4），留下的像素把 alpha 写成 0.5 做记号。
+- `pixel.js` 描边时，旁边更近的那一格如果带这个记号就不算边，树后面透出来的小狗不会被描黑。抖动格子跟着世界走（`onSnap` → `uSeeGrid`），镜头平移时不在树上爬。
+- `farm.js` 的 `placeCamera` 每帧把小狗位置和相机的右 / 上 / 后方向写进 `farmSeeThrough`。只对本机的小狗生效；房子、篱笆不透。
+
+管理员对捣乱的反应（逻辑层 `keeperNotice` / `stepKeeper`；用户定的流程，以此为准）：
+- 流程：只要小狗有捣乱的动作，不管她在哪儿 → **先赶到现场** → 小狗还在现场就**驱赶** → 驱赶无效才**抓**，拎到最近的路上扔下 → 小狗不在现场就**回去巡逻**。
+- 赶到现场：每次捣乱都记下出事地点（`K.sceneX / sceneZ`）并切到 `suspicious`（`alert` 事件），先愣 `REACT_T`（1.2 秒）转身，再以 `SUSPECT_SPEED`（3.0）跑过去；路上又有新的捣乱就改去最新的地方。没有“听得见才去”“动静攒够才去”这类条件（规则表里 `keeper.respondAll === false` 可以关掉远处的响应，留给夜晚模式）。
+- 小狗还在：赶路 / 张望时看见小狗在出事地点 `SCENE_R`（7）以内 → 开始驱赶（`chaseStart` 带 `shoo: true`）。亲眼看见捣乱的等于已经在现场，直接开始驱赶。
+- 驱赶：冲着小狗去，到跟前 1.1 以内站住挥手（`K.action = 'shoo'`），**不抓**。有效 = 小狗离开现场（离出事地点 > `SCENE_R` + 1.5 且离她 > 3），或 `SHOO_HIDE_T`（1.5 秒）看不见小狗 → `shooed` 事件，回去巡逻，火气涨 `SHOO_ANGER`。
+- 驱赶无效（`shooFail` 事件，`reason`）→ 改成抓：① `stay`：她到了小狗 `SHOO_NEAR`（6）以内以后累计 `SHOO_T`（4 秒）小狗还没离开现场；② `again`：正被驱赶时当着她的面又捣乱；③ `back`：刚被赶走 `SHOO_CD`（8 秒）内又回到原地（离刚赶过的地方 `AGAIN_R` 7 以内）捣乱，她回来直接抓；④ `angry`：火气到 `ANGER_FULL`（0.9）或进入通缉阶段，不再先驱赶。
+- 小狗不在：到了出事地点没看见，张望 `LOOK_T`（1.8 秒）就回去巡逻，不搜。抓的过程中跟丢了才会搜一圈（原有的 `search`）。
+- 圈门（用户反馈“管理员被卡在了门口”后修的）：寻路一直是按“撞开的圈门能走”规划的，但她走路时的碰撞（`keeperGo` / 贴身追）写死成圈门永远关着，所以门开了她也被挡在门口。现在碰撞和寻路都用同一个 `gateOpen`：门开着她能进圈赶 / 抓，门关着进不去——驱赶时够不着就站在能到的最近处隔着篱笆赶（`K.partial && arrived && K.shoo`），时间照算，之后改成抓也够不着，等 `GIVEUP_T` 放弃（关着门的圈仍然是小狗的避风港）。
+- 驱赶时她“知道小狗还在现场”（`aware`）：绕篱笆、找门的时候视线没对着小狗不算跟丢，只有小狗躲起来（她没看着进去）或离开了现场才算不见了。
+- 地图：牛圈的水槽原来摆在圈门里面 1.2 处，把她的通道堵死，挪到了北边篱笆下。
+- 界面：`alert` → “管理员听到动静，正赶过来！”；驱赶开始 → “管理员来赶你了，快走开！”；驱赶无效 → “还不走？她要抓你了！”等；被赶开 → “被赶开了，她回去巡逻了”。她驱赶时头顶冒“去！走开！”。
+- 难度（真实地图，机器人各 8 局 × 4 分钟）：改之前她对九成的捣乱没有反应（小狗捣乱时她平均在 18 个单位外，响动半径只有 3–12）；现在每次都来。熟练机器人完成度 97 → 约 56、每局被抓 0 → 约 1.3；随机机器人（不躲）每局被抓 0.4 → 1.8。偏难的话先调 `SUSPECT_SPEED / REACT_T / SHOO_T`。
+
+被抓以后（逻辑层）：
+- 管理员抓到小狗后不再是走 3 秒就地放下，而是拎到路上再扔：`catchPet` 里用 `pickRoadDrop` 在路面落点（沿每条路约 1 个单位取一个，`roadPts`）里挑一个离这儿至少 `ROAD_MIN`（3.5）、实际走过去最近的；拎着走的速度 `CARRY_SPEED` 3.0，至少拎 `CARRY_T` 1.5 秒，最多 `CARRY_MAX_T` 10 秒（走不到 / 卡住就地处理）。
+- 到了以后站定 `TOSS_WIND` 0.35 秒转向落点（`pickLanding`：优先附近路面上最顺着朝向的一点，没有再朝各方向找空地），然后扔出去：小狗 `action = 'tossed'`，沿抛物线飞 `TOSS_T` 0.55 秒（`p.air` = 离地高度，画面用），落地发 `landed` 事件、晕 `TOSS_STUN` 0.6 秒，之后 `IMMUNE_T` 5 秒内不会被再抓。
+- 顺带修了寻路：起点不在能站的格子上（贴着薄篱笆）时，“最近的能站的格子”不能隔着碰撞体选，否则管理员会顶着篱笆原地走。
+
+画面防闪（低分辨率 + 硬描边，镜头一动边缘就容易跳）：
+- 镜头平移：`pixel.js` 每帧把相机沿画面左右 / 上下方向对齐到像素格的整数倍再画（渲染目标四周多画 1 格），对齐掉的零头在放大时按亚像素补回来——静止的东西落在同样的像素上，平移仍然顺滑；相机本身画完即还原，界面按相机算的屏幕坐标不受影响。
+- 鼠标视角：加回差（`LOOK_BAND_X / LOOK_BAND_Y`，鼠标挪出半宽的 5% / 半高的 8% 才带动视角），手抖和点击时的小晃动不转；转动 / 俯仰 / 缩放的收尾改成匀速收住（`approach`），不拖一条越来越慢的尾巴。
+- 阴影：范围按 4 个单位一档取整，对准的位置按阴影贴图的格子取整（`lighting.js` 的 `apply`），镜头走动时影子边缘不抖。
+- 量化办法：`shots/` 下的一次性脚本逐帧对比（整体平移对齐后仍在变的像素比例）。改之前：跑动 5–7%、鼠标小幅晃动约 10%；改之后：跑动只剩小狗自己在动、鼠标小幅晃动 0。转视角本身会让整幅画面重新取样，这部分是这种画风固有的。
+- `createPixelPass` 留了 `ss`（超采样倍数）参数，默认 1：试过 2 倍，小石子和小花会被描成一圈黑边、画面发糊，没有采用。
+
+- 移动：WASD / 方向键，按屏幕方向（上 = 北）；外壳把按键方向换成“小狗前方 4 个单位处”的 moveTo 喂给逻辑层，逻辑层接口不变。鼠标不再控制移动。
+- 鼠标左键（或 K / Shift）= 扑：追鸡、吓散动物，随时都能扑。
+- 空格（或 J / 回车）= 和眼前的东西互动，对象就是头顶显示操作提示的那一个（离它边缘 1.5 以内最近的、还没捣乱过的）：
+  菜畦 → 按住原地刨（还差一点没站进去时自己走进去再刨）；奶桶 / 草垛 / 箱子 / 圈门等 → 按一下，小狗自己对准它冲过去撞（外壳在 0.32 秒内把 moveTo 指向目标并发一次 pounce）；
+  花坛 / 泥塘 / 喷泉 → 按住就往里走。眼前没有东西时空格不做任何事。
+- 镜头始终以小狗为中心。滚轮缩放 0.55–2.4 倍（`ZOOM_MIN / ZOOM_MAX`）；小狗走进“范围内有可捣乱物件”的区域时自动再推近 1.38 倍（`ZONE_ZOOM`）并提示区域名，离开恢复，进出有回差。
+- 视角跟着鼠标转：鼠标在窗口里的左右位置 → 镜头绕小狗的方位角（最左 / 最右各 140°，`YAW_MAX`），上下位置 → 抬头 / 低头：鼠标在最上俯角从 42° 放平到 22°（`PITCH_UP`），同时镜头落点沿视线方向往前挪（`AHEAD_BASE / AHEAD_UP / AHEAD_DOWN`，占画面一半可见纵深的比例：平时 0.12、最上 0.5、最下 −0.2），小狗退到画面下方、前面的路露出来；鼠标在最下俯角加到 50°（`PITCH_DOWN`）、落点往回收。描边的上下向阈值跟着俯角走（`pixel.js` 的 `uSlope`），视线放平时地面不会被描成一片黑线；窗口中间留一块不动的区域（`LOOK_DEAD`）；鼠标移出窗口时保持最后的视角。方向键是相对画面的，外壳按镜头的方位角把它转成世界方向。
+- 撞到要捣乱的东西不算撞墙：逻辑层把“扑的时候一头撞上障碍”推迟到物件判定之后结算（`settleBonk`）——这一扑撞到过可捣乱物件就只是停下，什么都没撞到才眩晕 0.8 秒；
+  方的东西从侧面撞（离中心比较远）时，只要撞上的碰撞体就在它身上也算撞到。
+- 捣乱点的提示：10 个单位以内、还没捣乱过的东西头顶显示一个黄色小感叹号；离它边缘 1.5 以内最近的那一个改成操作提示（“按住空格 刨萝卜”“空格 撞奶桶”“来回跑 踩花坛”等，文案在 `farm.js` 的 `TRIGGER_TEXT / KIND_TEXT`）。

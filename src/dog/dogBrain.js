@@ -85,6 +85,18 @@ export function createBrain(ctx) {
     mealDue: null,    // 'breakfast' | 'dinner' | null：到饭点了还没吃
     thirst: 0,        // 刚吃完 / 刚睡醒：想去喝水
     markAte() { if (S.mealDue === 'breakfast') ate.b = true; else if (S.mealDue === 'dinner') ate.d = true; S.mealDue = null; },
+    // 长时间行为（晒太阳、午睡、晚间歇息、看晚霞、眺望）的持续时间：rest(下限秒, 上限秒)。restScale 只给测试用（调小了好快速跑完一轮）
+    restScale: 1,
+    rest: (a, b) => rand(a, b) * S.restScale,
+    wantsMeal: () => !!(S.mealDue && A.bowlStand && !S.rainHold), // 到饭点了：歇着 / 睡着的也该起来去吃
+    // 白天的觉：午睡和晒太阳算同一件事（晒太阳就是在垫子上睡）。睡完一觉记下时间，隔一阵子才会再睡——
+    // 午睡时段（12:15–14:45）隔 8 分钟，其余时间隔 25 分钟，再往后 20 分钟里也少选。返回这时候想睡的程度 0..1
+    sleptAt: -1e9,
+    napUrge() {
+      const ago = (S.age - S.sleptAt) / S.restScale, h = S.env.hour;
+      if (h >= 12.25 && h < 14.75) return ago < 480 ? 0 : 1;
+      return ago < 1500 ? 0 : ago < 2700 ? 0.3 : 1;
+    },
     matCtl: null,
     age: 0, // brain 已运行的秒数
     exertion: 0, // 0..1 疲劳度：快跑时上升（约 20 秒跑满），停下来后慢慢恢复（约 50 秒）
@@ -311,6 +323,7 @@ export function createBrain(ctx) {
     brain.state = 'auto:idle';
   };
   brain.routine = () => ({ energy: S.energy, mealDue: S.mealDue, sleepTime: S.sleepTime, evening: S.evening, rainHold: S.rainHold }); // 作息状态（白鹭来访等机制读它）
+  Object.defineProperty(brain, 'restScale', { get: () => S.restScale, set: (v) => { S.restScale = v > 0 ? +v : 1; } }); // 测试用：长时间行为的时长倍率（默认 1）
   brain.pet = pet; // 调试/测试用：当前的摸摸反应
   brain.mover = mover; // 调试/测试用：只读观察
   brain.weights = () => pool.map((b) => [b.name, +b.weight().toFixed(2)]); // 调试：当前各行为权重

@@ -1,0 +1,129 @@
+// 农场捣乱小游戏调色板：所有方块的颜色都从这里取（sRGB 十六进制）。
+// 第二版：更浓郁；每种材质 3–4 档（暗部偏蓝紫、亮部偏黄），见下面的 TIER。
+// PAL 里的旧键名全部保留（角色模型也在用），只是色值调得更浓；新键在文件后半段。
+export const PAL = {
+  // 草地
+  grass: 0x4aa832,
+  grassDark: 0x3a9234,
+  grassLight: 0x6cc23a,
+  grassDeep: 0x2a7a3c,
+  hedge: 0x2f8a40,
+  hedgeDark: 0x1f6a3c,
+  // 泥土 / 土路（金黄色）
+  dirt: 0xa8793f,
+  dirtDark: 0x8a5e30,
+  road: 0xe0a830,
+  roadLight: 0xf0c050,
+  roadEdge: 0xc08820,
+  soil: 0x7a4a28,
+  soilDark: 0x5a3220,
+  mud: 0x6b4a2e,
+  mudDark: 0x4a3222,
+  mudLight: 0x8a6440,
+  // 水
+  water: 0x2a8ac0,
+  waterLight: 0x7cd0ec,
+  stone: 0x9896aa,
+  stoneDark: 0x6e6c84,
+  // 谷仓 / 木头
+  barnRed: 0xc83a38,
+  barnRedDark: 0x982c36,
+  roofTile: 0xc04a3c,
+  roofDark: 0x54445c,
+  roofMid: 0x6e5a74,
+  white: 0xf8f2e2,
+  wood: 0x96602f,
+  woodLight: 0xc08a48,
+  woodDark: 0x6e4228,
+  // 天空
+  sky: 0x8fd3f4,
+  cloud: 0xffffff,
+  cloudShade: 0xd2e2f2,
+  // 干草
+  hay: 0xeabc3c,
+  hayLight: 0xf8d868,
+  hayDark: 0xc8902a,
+  // 庄稼
+  cropGreen: 0x4cae38,
+  cropDark: 0x2e8030,
+  cabbage: 0x9cd868,
+  cabbageLight: 0xc8ec8c,
+  radish: 0xdc4050,
+  pumpkin: 0xf48a20,
+  pumpkinDark: 0xc4620f,
+  // 果树 / 蜂箱
+  leaf: 0x2a8040,
+  leafDark: 0x1c5a3c,
+  leafLight: 0x58b83e,
+  apple: 0xe03a32,
+  trunk: 0x6e4228,
+  hive: 0xf4c430,
+  hiveDark: 0xc99a1c,
+  // 晾晒 / 杂物
+  sheet: 0xfdfbf2,
+  sheetShade: 0xe0dcd0,
+  towel: 0x5fa8e0,
+  rope: 0x8a7a66,
+  metal: 0xb4bcc8,
+  metalDark: 0x6c7488,
+  milk: 0xf4f4ee,
+  sack: 0xe6cf9a,
+  denim: 0x4a78c0,
+  ink: 0x2c2634,
+  // 点缀花
+  flowerPink: 0xf27ab0,
+  flowerYellow: 0xffe040,
+
+  // ---- 第二版新增 ----
+  flowerBlue: 0x7a9cf0,
+  flowerPurple: 0xb070e0,
+  flowerRed: 0xe84050,
+  flowerWhite: 0xfff4f0,
+  pine: 0x17666a,
+  pineDark: 0x0f4a4e,
+  pineLight: 0x34a086,
+  pink: 0xd870b8,
+  pinkDark: 0xb04a9a,
+  pinkLight: 0xf29ad0,
+  roofGreen: 0x2a7a46,
+  roofGreenDark: 0x1b5a3a,
+  roofGreenLight: 0x6cc070,
+  roofRed: 0xa83038,
+  roofRedDark: 0x7a2030,
+  roofRedLight: 0xf07058,
+  glass: 0x7cc0e8,
+  glassDark: 0x3a78b0,
+  lumber: 0xd8a860,
+  lumberLight: 0xf0c880,
+  clay: 0xb0623c,
+  mushroomRed: 0xd83a3a,
+  outline: 0x241a30,
+};
+
+/**
+ * 材质分档（由暗到亮：暗部偏蓝紫，亮部偏黄）。
+ * 方块的明暗直接用这些颜色做进模型里（树冠亮斑 / 暗斑、瓦片层次、草地深浅斑块）。
+ */
+export const TIER = {
+  grass: [0x2a7a3c, 0x3f9d33, 0x5fba35, 0x8fd43f],
+  leaf: [0x1c5a3c, 0x2a8040, 0x44a83c, 0x7cc83e],
+  pine: [0x0f4a4e, 0x17666a, 0x1f8478, 0x34a086],
+  pink: [0xb04a9a, 0xd870b8, 0xf29ad0, 0xffc8e6],
+  wood: [0x4a2a1c, 0x6e4228, 0x96602f, 0xc08a48],
+  road: [0xb8801f, 0xd49a28, 0xeab43a, 0xf6cc5a],
+  stone: [0x4e4c60, 0x74728a, 0x9a98ac, 0xc2c0d0],
+  roofGreen: [0x1b5a3a, 0x2a7a46, 0x3e9a52, 0x6cc070],
+  roofRed: [0x7a2030, 0xa83038, 0xd04840, 0xf07058],
+  roofGray: [0x3c3050, 0x54445c, 0x6e5a74, 0x8e7a94],
+  barn: [0x6a1c2c, 0x9c2c32, 0xc83a38, 0xe85a48],
+  water: [0x1b5a8c, 0x2a78b0, 0x4aa0d0, 0x8ad0e8],
+  soil: [0x4a2c1e, 0x6a4026, 0x8a5a30, 0xa87840],
+  hay: [0xa87020, 0xc8902a, 0xeabc3c, 0xf8d868],
+  mud: [0x3e2a1e, 0x56402a, 0x6e5034, 0x8a6a44],
+  lumber: [0xa87a40, 0xc89850, 0xdcb066, 0xf0cc88],
+  // 第三版（圆润造型）：叶团、花树的色阶，和 farm-style-test 样张一致
+  oak: [0x236b2c, 0x2f8431, 0x3f9d3a, 0x63bd45],
+  orchard: [0x2c7a2e, 0x3a9433, 0x4fae3c, 0x73c94a],
+  blossom: [0xd96fa6, 0xf093bd, 0xf7b6d2, 0xfbd3e4],
+  teal: [0x0f4a4e, 0x17666a, 0x1f8478, 0x34a086],
+};

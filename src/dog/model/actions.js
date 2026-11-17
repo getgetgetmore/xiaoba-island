@@ -363,24 +363,35 @@ A.playbow = (o, s) => {
 A.sniff = (o, s) => {
   stand(o);
   const t = s.t;
-  o[I.bodyPitch] = 0.24;
-  o[I.bodyY] = DIM.BODY_Y - 0.06;
-  o[I.bodyZ] = 0.03;
-  o[I.chestPitch] = 0.1;
-  setFoot(o, 0, 0.1, ANK, 0.22);
-  setFoot(o, 1, -0.1, ANK, 0.2);
-  o[I.neckPitch] = 0.5;
-  o[I.headPitch] = 0.22;
-  o[I.reach] = 0.12;
-  o[I.neckYaw] = 0.14 * sin(1.3 * t);
-  o[I.headYaw] = 0.26 * sin(1.3 * t + 0.4);
-  const burst = ss(0.2, 0.4, (t * 0.8) % 1) * (1 - ss(0.7, 0.85, (t * 0.8) % 1));
-  o[I.headPitch] += 0.03 * sin(TAU * 7 * t) * burst;
-  o[I.jaw] = 0.02 * burst;
-  o[I.earBack] = -0.12;
-  o[I.wagAmp] = 0.22;
-  o[I.wagFreq] = 1.6;
-  o[I.lookW] = 0.15;
+  // 要和吃饭 / 喝水（drink：站定、头一点一点、张嘴伸舌头）一眼分得开：
+  // 一轮约 5 秒——前一大半鼻子贴着地面往前探、左右大幅度扫着闻，前脚跟着挪小碎步；
+  // 然后抬起头、鼻尖朝上冲着空气嗅两下、歪歪头，再低下去。全程闭着嘴、耳朵朝前竖着、尾巴摇得欢。
+  const c = (t / 4.6) % 1;
+  const up = hump(c, 0.52, 0.62, 0.9, 0.99); // 抬头嗅空气的程度（约占一轮的三分之一）
+  const dn = 1 - up;
+  const w = TAU * 0.42 * t, sw = sin(w); // 左右扫
+  o[I.bodyPitch] = 0.15 * dn + 0.02 * up; // 比吃饭压得浅：鼻子在草尖上扫，脸露在外面，不是整个头埋下去
+  o[I.bodyY] = DIM.BODY_Y - 0.035 * dn;
+  o[I.bodyZ] = 0.04 * dn;
+  o[I.bodyX] = 0.018 * sw * dn;
+  o[I.chestYaw] = 0.12 * sw * dn;
+  o[I.chestPitch] = 0.08 * dn;
+  o[I.neckPitch] = 0.4 * dn - 0.22 * up;
+  o[I.headPitch] = 0.04 * dn - 0.34 * up; // 低头时鼻子朝前下方探出去（不是垂直扎下去）；抬头时鼻尖朝上
+  o[I.reach] = 0.16 * dn + 0.04 * up;
+  o[I.neckYaw] = 0.36 * sw * dn + 0.1 * sin(1.7 * t) * up;
+  o[I.headYaw] = 0.28 * sin(w + 0.5) * dn;
+  o[I.headRoll] = 0.2 * up;
+  // 鼻子抽动：贴地时又细又快，抬头时慢一些、幅度大
+  o[I.headPitch] += 0.03 * sin(TAU * 8 * t) * dn + 0.055 * sin(TAU * 4.5 * t) * up;
+  o[I.earBack] = -0.14 - 0.2 * up;
+  o[I.wagAmp] = 0.5;
+  o[I.wagFreq] = 3;
+  o[I.lookW] = 0;
+  // 前脚跟着左右扫的节奏轮流抬一下、往两边挪
+  const lf = Math.max(0, sin(w + 0.3)), rf = Math.max(0, -sin(w + 0.3));
+  setFoot(o, 0, 0.1 + 0.02 * sw * dn, ANK + 0.03 * dn * lf * lf * lf, 0.22 + 0.025 * sw * dn);
+  setFoot(o, 1, -0.1 + 0.02 * sw * dn, ANK + 0.03 * dn * rf * rf * rf, 0.2 - 0.025 * sw * dn);
 };
 
 A.drink = (o, s) => {

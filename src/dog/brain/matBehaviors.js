@@ -96,7 +96,7 @@ export function createMatBehaviors(S) {
 
   // ---------------------------------------------------------------- 晒太阳
   const sunbathe = (() => {
-    const st = { phase: 'goto', t: 0, travelT: 0, dur: 0, total: 0, nextRoll: 0, rollT: 0, step: 0, sign: 1, h1: 0, final: 0, spotX: 0, spotZ: 0, spotYaw: 0 };
+    const st = { phase: 'goto', t: 0, travelT: 0, dur: 0, total: 0, nextRoll: 0, rollT: 0, lieT: 0, sunny: false, step: 0, sign: 1, h1: 0, final: 0, spotX: 0, spotZ: 0, spotYaw: 0 };
     function setPhase(p) { st.phase = p; st.t = 0; }
 
     // 在草坪/草坪边缘挑一个晒太阳的地点：离狗窝 ≥ 3、离 front ≥ 2、离所有障碍（池塘、瞭望台坡道……）够远
@@ -142,7 +142,8 @@ export function createMatBehaviors(S) {
         if (!M.atHome) w *= 2 + Math.min(4, M.outT / 45); // 垫子已经在外面了：直接去垫子上趴下；放得越久越惦记
         else {
           if (S.age < 20) return 0; // 启动后头 3 分钟先自由活动（长时间行为不抢在短行为前面）
-          if (S.age - (this.endedAt === undefined ? -1e9 : this.endedAt) < 240) w *= 0.3; // 刚晒完不久，少选
+          w *= S.napUrge(); // 晒太阳算在白天的觉里：刚睡完一觉（不管是午睡还是晒太阳）隔一阵子才会再睡
+          if (S.energy > 1.1) w *= 0.25; // 精力最旺的时候（清晨到上午十点）更想跑跑跳跳，很少躺下
         }
         return w;
       },
@@ -225,7 +226,8 @@ export function createMatBehaviors(S) {
               }
             } else if ((mover.headingError(st.final) < 0.12 && st.t > 0.3) || st.t > 2) {
               setPhase('lie');
-              st.total = 0; st.dur = rand(20, 40); st.nextRoll = rand(7, 13);
+              st.total = 0; st.dur = S.rest(600, 1080); st.nextRoll = S.rest(60, 150); // 一晒 10–18 分钟
+              st.sunny = S.sunOK();
             }
             break;
           }
@@ -237,20 +239,23 @@ export function createMatBehaviors(S) {
           case 'sleep':
             st.total += dt;
             dog.setAction('sleep');
-            if (st.total > st.dur) setPhase('wake');
+            // 晒够了 / 到饭点了 / 太阳没了（转阴、过了下午四点）：起来把垫子叼回去
+            if (st.total > st.dur || S.wantsMeal() || (st.sunny && !S.sunOK())) { setPhase('wake'); S.sleptAt = S.age; }
             else if (st.total > st.nextRoll && st.total < st.dur - 6) { setPhase('roll'); st.rollT = rand(2, 4); }
             break;
           case 'roll':
             st.total += dt;
             dog.setAction('roll');
-            if (st.t > st.rollT) { setPhase('lie2'); st.nextRoll = st.total + rand(10, 18); }
+            if (st.t > st.rollT) { setPhase('lie2'); st.nextRoll = st.total + S.rest(60, 150); st.lieT = rand(1.5, 5); }
             break;
-          case 'lie2':
+          case 'lie2': // 翻完身趴着看一会儿，再接着睡
             st.total += dt;
             dog.setAction('lie');
-            if (st.t > 1.3) setPhase('sleep');
+            S.lookAround(dt);
+            if (st.t > st.lieT) { setPhase('sleep'); S.look(null); }
             break;
           case 'wake':
+            if (st.t < 0.1) S.look(null);
             dog.setAction(st.t < 0.8 ? 'lie' : 'playbow');
             if (st.t > 2.4) { setPhase('haul'); hStart(); }
             break;
@@ -262,7 +267,7 @@ export function createMatBehaviors(S) {
         }
         return false;
       },
-      exit() { hExit(); },
+      exit() { hExit(); S.look(null); },
     };
   })();
 

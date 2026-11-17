@@ -8,7 +8,7 @@ import { loadWorld, createStepper, recordError } from './core/world.js';
 import { createPanel } from './ui/panel.js';
 import { createPetting } from './interaction/petting.js';
 import { createPainterly } from './render/painterly.js';
-import { createWalkGame } from './minigame/walk.js';
+import { createFarmGame } from './minigame/farm.js';
 import { createFishing } from './minigame/fishing.js';
 import { createEgretVisits } from './world/egretVisit.js';
 
@@ -348,6 +348,8 @@ function render() {
   const gameOn = !!(game && game.active && game.scene && game.camera);
   const scene = gameOn ? game.scene : ctx.scene, camera = gameOn ? game.camera : ctx.camera;
   try {
+    // 农场小游戏自己做像素化渲染（低分辨率 + 描边），不走手绘滤镜
+    if (gameOn && typeof game.render === 'function' && game.render(renderer)) return;
     if (fx && fx.enabled) {
       try {
         if (gameOn) fx.params.edgeFade = 0; // 小游戏画面铺满整个窗口，不做边缘渐隐
@@ -410,7 +412,7 @@ async function boot() {
     hit.lastInput = performance.now(); hit.dirty = true;
   };
   try {
-    if (ctx.dog && ctx.island) { game = createWalkGame(ctx); ctx.game = game; pet.game = game; }
+    if (ctx.dog && ctx.island) { game = createFarmGame(ctx); ctx.game = game; pet.game = game; }
   } catch (e) { recordError(errors, 'minigame', 'create', e); game = null; }
   // 钓鱼小游戏：玩具架上的浮漂是入口（占用架子的下一个空格子）
   try {
@@ -440,6 +442,7 @@ async function boot() {
   const stepModules = createStepper(ctx, errors);
   function stepOnce(dt) {
     dt = clamp(dt, 0, 0.1);
+    if (typeof syncPanel === 'function') syncPanel();
     // 遛狗小游戏：不进行时只更新架子上的遛狗绳；进行时整个岛的模拟、相机、摸摸都暂停
     if (game) {
       try { game.update(dt); } catch (e) { recordError(errors, 'minigame', 'update', e); if (game.active) { try { game.stop(true); } catch (_) { /* ignore */ } } }
@@ -484,13 +487,17 @@ async function boot() {
     };
   };
 
-  // 控制面板
-  createPanel({
+  // 控制面板（右上角的时间 / 天气入口）
+  const panel = createPanel({
     parent: host,
     env: ctx.env,
     alwaysOn: params.panel,
     getStatus: () => ({ dogAction: ctx.dog && ctx.dog.action, brainState: ctx.brain ? ctx.brain.state : 'off' }),
   });
+  pet.panel = panel;
+  // 小游戏（农场 / 钓鱼）进行中把这个入口关掉，结束后恢复
+  let panelHidden = false;
+  const syncPanel = () => { const want = !!((game && game.active) || fishingOn()); if (panel && want !== panelHidden) { panelHidden = want; panel.setHidden(want); } };
 
   // 预热：跑几帧让灯光/天空/狗到位，并把相机吸附到目标
   for (let i = 0; i < 3; i++) stepOnce(1 / 30);
@@ -527,9 +534,9 @@ async function boot() {
   });
   render();
   pet.ready = true;
-  if (params.game === 'walk' && game) {
+  if ((params.game === 'walk' || params.game === 'farm') && game) {
     // 调试 / 截图：game=walk 自动开始（有 gameT 时跳过倒计时并快进到该秒数，自动驾驶）
-    game.start({ seed: params.seed, skipCountdown: params.gameT !== null, ff: params.gameT || 0, autopilot: params.gameT !== null });
+    game.start({ seed: params.seed, ff: params.gameT || 0, autopilot: params.gameT !== null, net: params.farmNet || undefined });
     render();
   }
   if (params.egret && travel) { travel.debugStart(params.egret); }

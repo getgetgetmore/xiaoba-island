@@ -87,6 +87,8 @@ export function createDog(ctx) {
     tailLift: 0,
     /** 耳朵竖起 0..1（钓鱼：鱼咬钩了）。默认 0 = 不影响。 */
     earPerk: 0,
+    /** 边走边闻 0..1（嗅探行为挪步时写入）：叠在走路动作上——头压低、鼻子贴着地面左右扫、尾巴摇。默认 0 = 不影响。 */
+    noseDown: 0,
     size: { length: 0.85, height: 0.83, radius: 0.45 }, // 实测：站立体长（鼻尖→臀）≈0.83、耳尖高≈0.83
     setAction,
     lookAt,
@@ -129,6 +131,7 @@ export function createDog(ctx) {
   let pantS = 0; // 喘气程度（平滑后）
   let blissS = 0; // 被摸摸时的享受程度（平滑后）
   let tailDropS = 0, tugS = 0, tugPhase = 0, perkS = 0, tailLiftS = 0; // 尾巴 / 耳朵钩子（平滑后）
+  let noseS = 0; // 边走边闻（平滑后）
   let prevY = DIM.BODY_Y, prevVy = 0, accY = 0;
   let prevHeading = 0, yawRate = 0, headingInit = false;
   let rainS = 0, brV = 0, cheekV = 0, flickV = 0;
@@ -216,6 +219,24 @@ export function createDog(ctx) {
       o[I.wagFreq] = Math.max(o[I.wagFreq], 4.4 * blissS);
       o[I.earBack] += 0.4 * blissS;
       o[I.headRoll] += 0.11 * Math.sin(st.time * 1.9) * blissS;
+    }
+
+    // 边走边闻：头压低、鼻子贴着地面左右扫，鼻子细碎地抽动，尾巴摇
+    noseS += (clamp(fin(dog.noseDown, 0), 0, 1) - noseS) * dampK(6, dt);
+    if (noseS < 0.001) noseS = 0;
+    if (noseS > 0) {
+      const k = ss01(noseS);
+      o[I.bodyPitch] += 0.12 * k;
+      o[I.chestPitch] += 0.08 * k;
+      o[I.neckPitch] += 0.58 * k;
+      o[I.headPitch] += (0.08 + 0.025 * Math.sin(TAU * 8 * T)) * k;
+      o[I.reach] += 0.1 * k;
+      o[I.neckYaw] += 0.3 * Math.sin(T * 2.6) * k;
+      o[I.headYaw] += 0.2 * Math.sin(T * 2.6 + 0.5) * k;
+      o[I.lookW] *= 1 - k;
+      o[I.earBack] -= 0.12 * k;
+      o[I.wagAmp] = Math.max(o[I.wagAmp], 0.45 * k);
+      o[I.wagFreq] = Math.max(o[I.wagFreq], 2.8 * k);
     }
 
     // 抖耳

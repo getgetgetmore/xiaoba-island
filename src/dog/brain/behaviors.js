@@ -218,7 +218,20 @@ export function createBehaviors(S) {
 
   // ---------------------------------------------------------------- 闻花 / 闻树根
   const sniff = (() => {
-    const st = { phase: 0, t: 0, total: 0, dur: 0, sd: 0, travelT: 0, last: -1 };
+    // 走到一处（树根、花丛、灌木旁）→ 站着闻一会儿 → 鼻子贴着地面挪几步、换个位置接着闻 → 再去下一处
+    const st = { phase: 0, t: 0, total: 0, dur: 0, sd: 0, travelT: 0, last: -1, sx: 0, sz: 0, left: 0, stepT: 0 };
+    /** 在这一处附近挑个落脚点，鼻子贴着地面慢慢挪过去。没有合适的点就返回 false */
+    function shuffle() {
+      for (let i = 0; i < 6; i++) {
+        const a = rand(0, TWO_PI), r = rand(0.35, 0.8);
+        const x = st.sx + Math.sin(a) * r, z = st.sz + Math.cos(a) * r;
+        if (!walkable(x, z) || Math.hypot(x - mover.x, z - mover.z) < 0.3) continue;
+        mover.goTo(x, z, { speed: 0.45, arriveR: 0.08 });
+        st.stepT = 0;
+        return true;
+      }
+      return false;
+    }
     function nextSpot() {
       const spots = A.sniffSpots;
       for (let i = 0; i < 8; i++) {
@@ -235,21 +248,30 @@ export function createBehaviors(S) {
     return {
       name: 'sniff',
       weight: () => (S.env.weather === 'cloudy' ? 3.5 : 3) * (0.45 + 0.55 * Math.min(1, S.energy)), // 中午犯困、晚上要睡了：少溜达
-      enter() { st.phase = 0; st.total = 0; st.dur = rand(8, 16); st.last = -1; S.look(null); nextSpot(); },
+      enter() { st.phase = 0; st.total = 0; st.dur = rand(12, 22); st.last = -1; S.look(null); dog.noseDown = 0; nextSpot(); },
       update(dt) {
         st.total += dt;
         st.t += dt;
-        if (st.phase === 0) {
-          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; st.sd = rand(3, 5.5); }
-        } else {
+        if (st.phase === 0) { // 走去下一处
+          dog.noseDown = 0;
+          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; st.sd = rand(2.2, 3.6); st.sx = mover.x; st.sz = mover.z; st.left = rint(1, 2); }
+        } else if (st.phase === 1) { // 站着闻
+          dog.noseDown = 0;
           dog.setAction(st.t < 0.35 ? 'idle' : 'sniff');
           if (st.t > st.sd) {
-            if (st.total < st.dur - 3 && rand(0, 1) < 0.6) { st.phase = 0; nextSpot(); }
+            if (st.left > 0 && shuffle()) { st.left--; st.phase = 2; st.t = 0; }
+            else if (st.total < st.dur - 4 && rand(0, 1) < 0.6) { st.phase = 0; nextSpot(); }
             else return true;
           }
+        } else { // 鼻子贴着地面挪几步
+          st.stepT += dt;
+          dog.noseDown = 1;
+          dog.setAction(mover.gait() || 'idle');
+          if (mover.settled || st.stepT > 4) { mover.clearGoal(); st.phase = 1; st.t = 0.35; st.sd = rand(2.2, 3.6); }
         }
         return false;
       },
+      exit() { dog.noseDown = 0; },
     };
   })();
 
@@ -297,7 +319,7 @@ export function createBehaviors(S) {
       name: 'sit',
       weight: () => (S.env.weather === 'cloudy' ? 3 : 2) * (1 + 2 * S.exertion) * (1.8 - 0.8 * Math.min(1, S.energy)), // 累了、精力低的时段多坐着歇会儿
       enter() {
-        st.phase = 0; st.t = 0; st.dur = rand(8, 16);
+        st.phase = 0; st.t = 0; st.dur = rand(10, 20) * (1 + 1.5 * (1 - Math.min(1, S.energy))); // 精力低的时段（中午、晚上）坐得久一些
         st.face = A.frontFacing + rand(-0.9, 0.9);
         mover.face(st.face);
         S.look(null);
@@ -322,13 +344,15 @@ export function createBehaviors(S) {
 
   // ---------------------------------------------------------------- 午后打盹
   const nap = (() => {
-    const st = { phase: 0, t: 0, travelT: 0, dur: 0 };
+    const st = { phase: 0, t: 0, travelT: 0, dur: 0, total: 0, nextStir: 0, stirT: 0, inWin: false };
+    const inWindow = () => S.env.hour >= 12 && S.env.hour < 15;
     return {
       name: 'nap',
       // 垫子在窝里、可以拖出去晒太阳时，由 sunbathe 取代大部分打盹
-      weight: () => (S.env.hour >= 12.25 && S.env.hour < 14.75 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 5 : 10) : 0),
+      weight: () => (S.env.hour >= 12.25 && S.env.hour < 14.75 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 5 : 10) : 0) * S.napUrge(),
       enter() {
-        st.phase = 0; st.t = 0; st.dur = rand(35, 70); // 午觉睡得久一点
+        st.phase = 0; st.t = 0; st.total = 0; st.dur = S.rest(600, 1200); // 午觉一睡 10–20 分钟
+        st.nextStir = S.rest(70, 160); st.inWin = inWindow();
         S.look(null);
         startTravel(st, A.napSpot.x, A.napSpot.z, { arriveR: 0.15 });
       },
@@ -342,14 +366,23 @@ export function createBehaviors(S) {
           dog.setAction(st.t < 0.5 ? 'idle' : 'lie');
           if (st.t > 1.6) { st.phase = 2; st.t = 0; }
         } else if (st.phase === 2) {
+          st.total += dt;
           dog.setAction('sleep');
-          if (st.t > st.dur) { st.phase = 3; st.t = 0; }
+          // 睡够了 / 到饭点了 / 午睡的时段过了：起来
+          if (st.total > st.dur || S.wantsMeal() || (st.inWin && !inWindow())) { st.phase = 4; st.t = 0; S.sleptAt = S.age; }
+          else if (st.total > st.nextStir) { st.phase = 3; st.t = 0; st.stirT = rand(3, 6); }
+        } else if (st.phase === 3) { // 中途醒一下：抬头看看，又睡过去
+          st.total += dt;
+          dog.setAction('lie');
+          S.lookAround(dt);
+          if (st.t > st.stirT) { st.phase = 2; st.t = 0; st.nextStir = st.total + S.rest(70, 160); S.look(null); }
         } else {
           dog.setAction('lie');
           if (st.t > 1.0) return true;
         }
         return false;
       },
+      exit() { S.look(null); },
     };
   })();
 
@@ -393,9 +426,9 @@ export function createBehaviors(S) {
     return {
       name: 'sunset',
       repeatable: true,
-      weight: () => (S.env.sunsetFactor > 0.5 && !S.env.isRaining ? 24 : 0),
+      weight: () => (S.env.sunsetFactor > 0.5 && !S.env.isRaining && !S.wantsMeal() ? 24 : 0),
       enter() {
-        st.phase = 0; st.t = 0; st.dur = rand(18, 30);
+        st.phase = 0; st.t = 0; st.dur = S.rest(240, 480); // 一坐 4–8 分钟（晚霞散了 / 开饭了就起来）
         S.look(null);
         startTravel(st, A.sunsetSpot.x, A.sunsetSpot.z, { arriveR: 0.12 });
       },
@@ -410,7 +443,7 @@ export function createBehaviors(S) {
           if ((mover.headingError(A.sunsetFacing) < 0.15 && st.t > 0.4) || st.t > 2.5) { st.phase = 2; st.t = 0; }
         } else {
           dog.setAction('sit');
-          if (st.t > st.dur || S.env.sunsetFactor < 0.2) return true;
+          if (st.t > st.dur || S.env.sunsetFactor < 0.2 || S.wantsMeal()) return true;
         }
         return false;
       },
@@ -419,13 +452,14 @@ export function createBehaviors(S) {
 
   // ---------------------------------------------------------------- 傍晚窝门口看萤火虫
   const evening = (() => {
-    const st = { phase: 0, t: 0, travelT: 0, dur: 0, pose: 'lie', lookT: 0 };
+    const st = { phase: 0, t: 0, travelT: 0, dur: 0, pose: 'lie', lookT: 0, swapT: 0 };
     return {
       name: 'evening',
       repeatable: true,
       weight: () => (S.evening && !S.env.isRaining ? 16 : 0),
       enter() {
-        st.phase = 0; st.t = 0; st.dur = rand(14, 28); st.pose = rand(0, 1) < 0.5 ? 'lie' : 'sit';
+        st.phase = 0; st.t = 0; st.dur = S.rest(360, 720); st.pose = rand(0, 1) < 0.5 ? 'lie' : 'sit'; // 一歇 6–12 分钟
+        st.swapT = S.rest(60, 140);
         S.look(null);
         startTravel(st, A.kennelDoor.x, A.kennelDoor.z, { arriveR: 0.15 });
       },
@@ -439,11 +473,12 @@ export function createBehaviors(S) {
           dog.setAction('idle');
           if ((mover.headingError(A.kennelFacing) < 0.15 && st.t > 0.4) || st.t > 2.5) { st.phase = 2; st.t = 0; }
         } else {
+          if (st.t > st.swapT) { st.pose = st.pose === 'lie' ? 'sit' : 'lie'; st.swapT = st.t + S.rest(60, 140); } // 歇久了换个姿势：趴着 ↔ 坐着
           dog.setAction(st.t < 0.5 ? 'idle' : st.pose);
           const f = S.nearestCritter('firefly');
           if (f) S.look(f.position);
           else S.lookAround(dt);
-          if (st.t > st.dur) return true;
+          if (st.t > st.dur || S.wantsMeal()) return true;
         }
         return false;
       },

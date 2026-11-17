@@ -17,7 +17,8 @@ export function defaultParams() {
     fx: true, // 手绘后处理（fx=0 关闭，对比用）
     fps: 0, // 帧率：0 = 自适应（空闲 30、操作时 60），30 / 60 = 强制
     backdrop: null, // 背景画面：null = 按窗口大小自动（小窗口只留小岛），0 = 始终只留小岛，1 = 始终完整画面
-    game: null, // 调试：game=walk | fishing 启动后自动开始遛狗 / 钓鱼小游戏
+    game: null, // 调试：game=farm | fishing 启动后自动开始农场 / 钓鱼小游戏（game=walk 是 farm 的旧名）
+    farmNet: null, // 调试：farmNet=mock 农场里加几只本机模拟的“别人的宠物”（验证联机接口用）
     gameT: null, // 调试：gameT=<秒> 把游戏时间快进到指定秒数（自动驾驶，只在带 game 参数时生效）
     egret: null, // 调试：egret=visit 白鹭现在来一趟 | ride 来了并带小狗出门 | away 直接进入“小狗出门了”的状态
   };
@@ -63,7 +64,8 @@ export function parseParams(search) {
   else if (q.get('fps') === '30') out.fps = 30;
   if (q.get('backdrop') === '0') out.backdrop = 0;
   else if (q.get('backdrop') === '1') out.backdrop = 1;
-  if (q.get('game') === 'walk') out.game = 'walk';
+  if (q.get('game') === 'walk' || q.get('game') === 'farm') out.game = 'farm';
+  if (q.get('farmNet') === 'mock') out.farmNet = 'mock';
   else if (q.get('game') === 'fishing') out.game = 'fishing';
   if (['visit', 'ride', 'away'].includes(q.get('egret'))) out.egret = q.get('egret');
   if (q.has('gameT')) {

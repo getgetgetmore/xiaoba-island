@@ -146,6 +146,9 @@ export function createPanel({ parent, env, getStatus, alwaysOn = false }) {
     el: zone,
     setOpen,
     refresh,
+    /** 整个入口（右上角的热区和面板）藏起来 / 放出来：小游戏进行中不让改时间和天气 */
+    setHidden(on) { if (on) setOpen(false); zone.style.display = on ? 'none' : ''; },
+    get hidden() { return zone.style.display === 'none'; },
     destroy() {
       clearInterval(timer);
       clearTimeout(closeTimer);

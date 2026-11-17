@@ -55,11 +55,14 @@ export function createLookout(S) {
       const h = e.hour;
       w *= h < 7 ? 0.5 : h < 9.5 ? 1 : h < 12 ? 0.7 : h < 14.75 ? 0.2 : h < 16.5 ? 0.7 : h < 19.5 ? 1.2 : h < 20.5 ? 0.3 : 0.05;
       if (S.age < GRACE) return 0; // 启动后头 3 分钟先自由活动（长时间行为不抢在短行为前面）
-      if (S.age - (this.endedAt === undefined ? -1e9 : this.endedAt) < 90) w *= 0.4; // 刚下来不久，少选
+      // 一次要看一两分钟：刚下来的 10 分钟里不再上去，之后一阵子也少选（不然活跃的时段全耗在台上了）
+      const ago = (S.age - (this.endedAt === undefined ? -1e9 : this.endedAt)) / S.restScale;
+      if (ago < 600 || S.wantsMeal()) return 0;
+      if (ago < 1500) w *= 0.4;
       return w;
     },
     enter() {
-      st.total = 0; st.dur = rand(12, 24); st.travelT = 0; st.lookT = 0; st.lookStep = 0;
+      st.total = 0; st.dur = S.rest(60, 120); st.travelT = 0; st.lookT = 0; st.lookStep = 0; // 在台上看 1–2 分钟
       S.look(null);
       pickView();
       setPhase('goto');
@@ -101,10 +104,10 @@ export function createLookout(S) {
           sweep(dt);
           if (st.segT <= 0) { // 坐 / 站交替（晚霞时多半坐着）
             st.sitting = !st.sitting;
-            st.segT = st.sitting ? rand(4, 8) : rand(2, 4);
-            if (st.sunset && !st.sitting && rand(0, 1) < 0.6) { st.sitting = true; st.segT = rand(4, 7); }
+            st.segT = st.sitting ? S.rest(12, 30) : S.rest(5, 12);
+            if (st.sunset && !st.sitting && rand(0, 1) < 0.6) { st.sitting = true; st.segT = S.rest(12, 28); }
           }
-          if (st.total > st.dur) { setPhase('stand'); S.look(null); }
+          if (st.total > st.dur || S.wantsMeal()) { setPhase('stand'); S.look(null); }
           break;
         }
         case 'stand': // 站起来，再转身下坡
