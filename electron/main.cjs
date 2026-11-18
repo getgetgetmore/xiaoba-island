@@ -124,7 +124,7 @@ function loadState() {
 }
 
 function saveState() {
-  if (CAPTURE || !win || win.isDestroyed() || win.isMinimized()) return;
+  if (CAPTURE || SELFTEST || !win || win.isDestroyed() || win.isMinimized()) return; // 自检会临时改窗口大小和位置：不写进用户的窗口状态
   try {
     fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
     const gb = win.getBounds();
@@ -478,6 +478,16 @@ async function runSelfTest() {
     await sleep(1500);
     out.visible = win.isVisible();
     out.alwaysOnTop = win.isAlwaysOnTop();
+    // 自检不依赖用户当前的窗口大小和位置：先摆成默认的大小和位置再测。
+    // （用户把窗口缩到接近最小尺寸时，下面“再缩小 80×60”那一步缩不动，会误报失败。）
+    // 自检期间不保存窗口状态（见 saveState），退出后用户的窗口还是原来的样子。
+    out.userBounds = win.getBounds();
+    {
+      const db = defaultBounds();
+      sizeDIP = { width: db.width, height: db.height };
+      win.setBounds(db);
+      await sleep(700);
+    }
     out.before = win.getBounds();
     out.shell = await js(`({ petShell: !!window.petShell, drag: !document.querySelector('.pet-shell-drag'), grip: !!document.querySelector('.pet-shell-grip'), canvas: (() => { const c = document.querySelector('canvas'); return c ? [c.clientWidth, c.clientHeight] : null; })() })`);
     // 合成指针事件：在缩放手柄上按下 → 向左上拖 80×60 → 松开
