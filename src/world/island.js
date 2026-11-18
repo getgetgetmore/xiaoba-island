@@ -1,4 +1,4 @@
-// WP1 小岛与田园场景：手绘水粉风悬浮岛（厚实岩土、密草、旧木板狗窝、歪栅栏、大树、池塘……）。
+﻿// WP1 小岛与田园场景：手绘水粉风悬浮岛（厚实岩土、密草、旧木板狗窝、歪栅栏、大树、池塘……）。
 import * as THREE from 'three';
 import { smoothstep, damp } from '../core/util.js';
 import { paintMaterial, applyPaint } from '../core/paint.js';
@@ -187,7 +187,51 @@ export function createIsland(ctx) {
     ...LOOKOUT_COLLIDERS,
   ];
 
+  // 收口：解析式的 rawWalkable 会留下一些“能站但没用”的地方——小屋后墙和岛沿之间不到半个身位宽的窄带、被障碍围住的小口袋。
+  // 小狗能沿直线走进去，寻路却规划不出离开的路线（追木棍时卡在屋后原地转圈、木棍隔空回到手上）。
+  // 这里铺一张 0.125 的细栅格：只有“容得下狗身子”（四周 ROOM 以内都能站）并且从草坪一路走得到的格子才算数，
+  // 再向外补回 KEEP 的一圈（贴着障碍 / 岛沿的边仍然能站）。其余的 rawWalkable 区域一律不可行走。
+  // KEEP 要比 ROOM 多出栅格的斜向误差（0.125 × √2 ≈ 0.18）：否则紧贴障碍圆的那一线会时有时无，小狗贴着障碍滑行时被卡住。
+  const WG = 0.125, WR = 9.5, WN = Math.round((2 * WR) / WG) + 1, ROOM = 0.25, KEEP = 0.45;
+  let walkMask = null;
+  function buildWalkMask() {
+    const roomy = new Uint8Array(WN * WN), reach = new Uint8Array(WN * WN);
+    const mask = new Uint8Array(WN * WN);
+    for (let iz = 0; iz < WN; iz++) for (let ix = 0; ix < WN; ix++) {
+      const x = -WR + ix * WG, z = -WR + iz * WG;
+      let ok = rawWalkable(x, z);
+      for (let k = 0; k < 8 && ok; k++) ok = rawWalkable(x + Math.cos(k * Math.PI / 4) * ROOM, z + Math.sin(k * Math.PI / 4) * ROOM);
+      roomy[iz * WN + ix] = ok ? 1 : 0;
+    }
+    const start = Math.round((L.lawn.z + WR) / WG) * WN + Math.round((L.lawn.x + WR) / WG);
+    if (!roomy[start]) { walkMask = mask.fill(1); return; } // 草坪中心都站不下（不该发生）：不收口，退回解析式
+    const stack = [start]; reach[start] = 1;
+    while (stack.length) {
+      const c = stack.pop(), cx = c % WN, cz = (c / WN) | 0;
+      if (cx > 0 && roomy[c - 1] && !reach[c - 1]) { reach[c - 1] = 1; stack.push(c - 1); }
+      if (cx < WN - 1 && roomy[c + 1] && !reach[c + 1]) { reach[c + 1] = 1; stack.push(c + 1); }
+      if (cz > 0 && roomy[c - WN] && !reach[c - WN]) { reach[c - WN] = 1; stack.push(c - WN); }
+      if (cz < WN - 1 && roomy[c + WN] && !reach[c + WN]) { reach[c + WN] = 1; stack.push(c + WN); }
+    }
+    const kr = Math.ceil(KEEP / WG);
+    for (let iz = 0; iz < WN; iz++) for (let ix = 0; ix < WN; ix++) {
+      if (!reach[iz * WN + ix]) continue;
+      for (let dz = -kr; dz <= kr; dz++) for (let dx = -kr; dx <= kr; dx++) {
+        const jx = ix + dx, jz = iz + dz;
+        if (jx < 0 || jz < 0 || jx >= WN || jz >= WN || Math.hypot(dx, dz) * WG > KEEP + 1e-6) continue;
+        mask[jz * WN + jx] = 1;
+      }
+    }
+    walkMask = mask;
+  }
   function isWalkable(x, z) {
+    if (!rawWalkable(x, z)) return false;
+    if (!walkMask) buildWalkMask();
+    const ix = Math.round((x + WR) / WG), iz = Math.round((z + WR) / WG);
+    return ix >= 0 && iz >= 0 && ix < WN && iz < WN && walkMask[iz * WN + ix] === 1;
+  }
+
+  function rawWalkable(x, z) {
     if (!(Number.isFinite(x) && Number.isFinite(z))) return false;
     if (Math.hypot(x, z) > outlineR(Math.atan2(z, x)) - 0.85) return false; // 岛沿余量（栅栏在边缘内 0.3，狗身半长约 0.65）
     for (let i = 0; i < obstacles.length; i++) {
@@ -366,6 +410,7 @@ export function createIsland(ctx) {
     heightAt: worldHeightAt,
     groundHeightAt: heightAt,
     isWalkable,
+    isWalkableRaw: rawWalkable, // 调试 / 测试用：收口之前的解析式判断
     clampWalkable,
     obstacles,
     groundMeshes: [topMesh],

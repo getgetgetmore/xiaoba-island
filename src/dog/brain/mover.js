@@ -57,6 +57,28 @@ export function createMover(ctx, dog) {
       if (ok) for (let k = 0; k < obs.length; k++) if (Math.hypot(x - obs[k].x, z - obs[k].z) < obs[k].r + PAD) { ok = false; break; }
       gridOpen[iz * GN + ix] = ok ? 1 : 0;
     }
+    // 只保留和草坪连通的格子（连通的规则和下面搜路时一样：不钻对角缝）。孤立的格子不当起点、终点，也不算“能走直线”——
+    // 否则小狗能沿直线走进去，却规划不出离开的路线，之后每个目标都立刻放弃，卡在原地。
+    {
+      const lw = anchors.lawn, s0 = lw ? gi(lw.z) * GN + gi(lw.x) : -1;
+      if (s0 >= 0 && gridFree[s0]) {
+        const seen = new Uint8Array(GN * GN), stack = [s0];
+        seen[s0] = 1;
+        while (stack.length) {
+          const c = stack.pop(), cx = c % GN, cz = (c / GN) | 0;
+          for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dz) continue;
+            const nx = cx + dx, nz = cz + dz;
+            if (nx < 0 || nz < 0 || nx >= GN || nz >= GN) continue;
+            const ni = nz * GN + nx;
+            if (!gridFree[ni] || seen[ni]) continue;
+            if (dx && dz && (!gridFree[cz * GN + nx] || !gridFree[nz * GN + cx])) continue;
+            seen[ni] = 1; stack.push(ni);
+          }
+        }
+        for (let i = 0; i < GN * GN; i++) if (!seen[i]) { gridFree[i] = 0; gridOpen[i] = 0; }
+      }
+    }
     for (let iz = 0; iz < GN; iz++) for (let ix = 0; ix < GN; ix++) {
       if (!gridFree[iz * GN + ix]) continue;
       let near = 3;
@@ -420,7 +442,9 @@ export function createMover(ctx, dog) {
       const sgn = mover.reverse && mover.driveSpeed < 0 ? -1 : 1;
       let nx = mover.x + Math.sin(mover.heading) * step * sgn;
       let nz = mover.z + Math.cos(mover.heading) * step * sgn;
-      if (!freePass && !island.isWalkable(nx, nz)) {
+      // 已经站在不能站的地方（被摆过去的、小游戏结束时留下的……）：放行，让它沿规划的路线走回能站的地方，而不是原地卡死
+      const outside = !freePass && !island.isWalkable(mover.x, mover.z);
+      if (!freePass && !outside && !island.isWalkable(nx, nz)) {
         const c = island.clampWalkable(nx, nz);
         const moved = Math.hypot(c.x - mover.x, c.z - mover.z);
         if (moved <= step * 1.35 + 0.01 && island.isWalkable(c.x, c.z)) { nx = c.x; nz = c.z; }

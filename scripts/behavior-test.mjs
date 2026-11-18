@@ -734,6 +734,46 @@ async function testRest() {
   }
 }
 
+// ---------------------------------------------------------------- S) 扔木棍：落点在小屋后面 / 障碍夹缝里也不会卡住
+// 以前小屋后墙和岛沿之间有一条 0.4 宽的死胡同：小狗能沿直线走进去，寻路却规划不出离开的路线，
+// 于是在屋后把木棍“交”了、原地转圈，收起木棍再拿出来也回不来。
+async function testStuck() {
+  const w = await makeWorld({ hour: 10.5, weather: 'clear' });
+  const { ctx } = w, a = ctx.island.anchors, stick = ctx.stick, brain = ctx.brain, isl = ctx.island;
+  if (!brain.mover || !stick.recall) { console.log('SKIP  S1–S3：当前 brain / stick 是 stub'); return; }
+  const M = brain.mover;
+  // S1：以前的死胡同现在不能站；木棍的落点也不会落进去
+  const old = [[-5.25, -4.54], [-5.0, -4.75], [-5.5, -4.25], [-5.8, -3.8]];
+  const stillOpen = old.filter(([x, z]) => isl.isWalkable(x, z));
+  report('S1 小屋后面的死胡同已经封掉（不可行走）', stillOpen.length === 0, stillOpen.map((p) => p.join(',')).join(' ; '));
+  // S2：往小屋后面、左后方、菜地南侧各扔一次：小狗走到木棍跟前才叼（或够不着就放弃），最后都回到 front
+  const bad = [];
+  for (const [x, z] of [[-5.2, -4.4], [-8, -7.6], [-4.8, -4.8], [-6.4, -3.2], [-8, -1.6], [-4.4, -2.4], [0.4, -5.6], [2.0, -4.8], [-2.8, -4.8]]) {
+    stick.dismiss(); run(w, 1.2);
+    M.place(a.lawn.x, a.lawn.z, 0); M.inKennel = false; M.onRamp = false;
+    stick.click(null); run(w, 5, { until: () => brain.state.startsWith('fetch:wait') });
+    stick.click(new THREE.Vector3(x, 0, z));
+    let picked = false, gave = false, pickDist = 0;
+    const r = run(w, 45, {
+      onFrame: () => {
+        if (stick.state === 'carried' && !picked) { picked = true; pickDist = Math.hypot(M.x - stick.target.x, M.z - stick.target.z); }
+        if (brain.state === 'fetch:giveup') gave = true;
+      },
+      until: () => stick.state === 'held' && (picked || gave),
+    });
+    run(w, 6);
+    const d = distTo(ctx, a.front);
+    if (!r.hit || d > 1.2 || pickDist > 1.3) bad.push(`(${x},${z}) 回手上 ${r.hit ? f2(r.t) + 's' : '超时'}, 叼起时距木棍 ${f2(pickDist)}, 距 front ${f2(d)}, ${brain.state}`);
+  }
+  report('S2 木棍扔到小屋后面 / 夹缝里：到跟前才叼，最后回到 front(<1.2)', bad.length === 0, bad.join(' | '));
+  // S3：就算小狗被放到了寻路栅格之外的地方（以前卡住的那个点），拿出木棍它也能自己走回来
+  stick.dismiss(); run(w, 1.2);
+  M.place(-5.25, -4.54, 0); M.inKennel = false; M.onRamp = false;
+  stick.click(null);
+  const r3 = run(w, 9, { until: () => distTo(ctx, a.front) < 1.2 });
+  report('S3 从以前卡住的位置出发：拿出木棍 9 秒内跑回 front', r3.hit, `耗时 ${f2(r3.t)}s, 距 front ${f2(distTo(ctx, a.front))}, ${brain.state}`);
+}
+
 async function main() {
   console.log(`行为测试：seed=${SEED}；真实模块：${only ? [...only].join(',') || '(无)' : '全部'}`);
   const probe = await makeWorld({});
@@ -742,7 +782,7 @@ async function main() {
     console.log('  注意：brain 或 stick 回退到了 stub，下面的结果不代表 WP5 实现');
   }
   const t0 = Date.now();
-  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['R', testRest], ['P', testP], ['Q', testGame]]) {
+  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['R', testRest], ['S', testStuck], ['P', testP], ['Q', testGame]]) {
     console.log(`--- ${name}`);
     try { await fn(); } catch (e) { report(`${name} 测试异常`, false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e)); }
   }

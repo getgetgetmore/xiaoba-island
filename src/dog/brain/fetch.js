@@ -11,15 +11,26 @@ export function createFetch(S) {
   const st = {
     phase: 'react', t: 0, travelT: 0,
     sub: 'face', subT: 0, spinTotal: 0, spinDone: 0, spinCur: 0, bounceDur: 0, bounceFlip: 0, bounceAct: 'playbow',
-    attached: false, retry: 0, reactDur: 0.35,
+    attached: false, retry: 0, reactDur: 0.35, homeTry: 0,
   };
   const _tp = { x: 0, z: 0 };
+  const REACH = 1.3;      // 离木棍这么近才叼得到
+  const AT_FRONT = 1.2;   // 离 front 这么近才算“回到了跟前”
 
   function setPhase(p) { st.phase = p; st.t = 0; }
+  const frontDist = () => Math.hypot(A.front.x - mover.x, A.front.z - mover.z);
+  /** 往 front 跑的路上寻路放弃了（没到跟前就停下）：再试几次。返回 true = 又出发了 */
+  function retryHome() {
+    if (frontDist() <= AT_FRONT || st.homeTry >= 3) return false;
+    st.homeTry++;
+    mover.goTo(A.front.x, A.front.z, { run: true, arriveR: 0.12 });
+    return true;
+  }
 
   function startRush() {
     setPhase('rush');
     st.travelT = 0;
+    st.homeTry = 0;
     mover.spinRate = 0;
     mover.driveSpeed = -1;
     mover.goTo(A.front.x, A.front.z, { run: true, arriveR: 0.12 });
@@ -29,9 +40,18 @@ export function createFetch(S) {
     setPhase('return');
     st.travelT = 0;
     st.subT = 0;
+    st.homeTry = 0;
     dog.setCarrying(true);
     mover.spinRate = 0;
     mover.goTo(A.front.x, A.front.z, { run: true, arriveR: 0.12 });
+  }
+
+  /** 木棍落在够不着的地方：坐下看它一眼，木棍自己飞回手上，小狗跑回跟前等下一次 */
+  function startGiveUp() {
+    setPhase('giveup');
+    mover.spinRate = 0;
+    mover.clearGoal();
+    st.attached = false;
   }
 
   function enterWait() {
@@ -102,16 +122,16 @@ export function createFetch(S) {
 
     // ---- 根据木棍状态校正阶段 ----
     const p = st.phase;
-    if ((ss === 'flying' || ss === 'landed') && p !== 'chasereact' && p !== 'chase' && p !== 'waitland' && p !== 'pickup') {
+    if ((ss === 'flying' || ss === 'landed') && p !== 'chasereact' && p !== 'chase' && p !== 'waitland' && p !== 'pickup' && p !== 'giveup') {
       if (p === 'return') dog.setCarrying(false);
       startChaseReact();
     } else if (ss === 'carried' && p !== 'pickup' && p !== 'return') {
       startReturn();
-    } else if (ss === 'returning' && p !== 'drop') {
+    } else if (ss === 'returning' && p !== 'drop' && p !== 'rush') { // rush：够不着、木棍自己飞回去的那一趟，小狗已经在往回跑
       dog.setCarrying(false);
       mover.spinRate = 0;
       setPhase('drop');
-    } else if (ss === 'held' && (p === 'chasereact' || p === 'chase' || p === 'waitland' || p === 'pickup' || p === 'return' || p === 'drop')) {
+    } else if (ss === 'held' && (p === 'chasereact' || p === 'chase' || p === 'waitland' || p === 'pickup' || p === 'return' || p === 'drop' || p === 'giveup')) {
       dog.setCarrying(false);
       if (p === 'drop') enterWait();
       else startRush();
@@ -131,7 +151,18 @@ export function createFetch(S) {
         st.travelT += dt;
         S.look(stick.position);
         dog.setAction(mover.gait() || 'idle');
-        if ((mover.settled && !mover.hasGoal) || st.travelT > 25) enterWait();
+        // 停下了但还没到跟前（寻路放弃了）：不算到达，再试几次
+        if ((mover.settled && !mover.hasGoal && !retryHome()) || st.travelT > 25) enterWait();
+        break;
+      }
+      case 'giveup': { // 够不着：面朝木棍坐下看一眼，木棍飞回手上，自己跑回跟前
+        S.look(stick.position);
+        mover.face(Math.atan2(stick.position.x - mover.x, stick.position.z - mover.z));
+        dog.setAction(st.t < 0.3 ? 'idle' : 'sit');
+        if (st.t > 1.4) {
+          if (stick.recall) stick.recall(); else stick.dismiss();
+          startRush();
+        }
         break;
       }
       case 'wait': {
@@ -193,6 +224,7 @@ export function createFetch(S) {
             _tp.x = stick.position.x - mover.x; _tp.z = stick.position.z - mover.z;
             const d = Math.hypot(_tp.x, _tp.z);
             if (d > 1.1 && st.retry < 3) { st.retry++; beginApproach(); break; }
+            if (d > REACH) { startGiveUp(); break; } // 试了几次还是走不到跟前：不隔空叼
             setPhase('pickup');
             st.sub = 'turn';
             st.attached = false;
@@ -220,6 +252,7 @@ export function createFetch(S) {
         st.subT += dt;
         dog.setAction('pickup');
         if (!st.attached && st.subT >= 0.25) {
+          if (stick.state === 'landed' && Math.hypot(stick.position.x - mover.x, stick.position.z - mover.z) > REACH) { startGiveUp(); break; }
           if (stick.state === 'landed') stick.attachTo(dog);
           st.attached = true;
           dog.setCarrying(true);
@@ -238,6 +271,9 @@ export function createFetch(S) {
         if (mover.hasGoal || !mover.settled) {
           dog.setAction(mover.gait() || 'idle');
           if (st.travelT > 25) mover.clearGoal();
+        } else if (st.travelT <= 25 && retryHome()) {
+          // 停下了但还没到跟前（寻路放弃了）：不在半路上交木棍，再试几次
+          dog.setAction(mover.gait() || 'idle');
         } else {
           dog.setAction('idle');
           mover.face(A.frontFacing);

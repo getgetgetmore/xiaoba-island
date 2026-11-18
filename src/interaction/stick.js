@@ -129,6 +129,7 @@ export function createStick(ctx) {
     click,
     attachTo,
     release,
+    recall,
     dismiss,
     update,
   };
@@ -277,6 +278,15 @@ export function createStick(ctx) {
     reparentToWorld();
     group.position.copy(position);
     carrier = null;
+    from.copy(position);
+    group.rotation.set(0, group.rotation.y, 0);
+    flightT = 0;
+    stick.state = 'returning';
+  }
+
+  /** 落在地上的木棍自己飞回手上（小狗够不着它时用）：landed → returning → held */
+  function recall() {
+    if (stick.state !== 'landed') return;
     from.copy(position);
     group.rotation.set(0, group.rotation.y, 0);
     flightT = 0;
