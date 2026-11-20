@@ -295,8 +295,8 @@ const games = {};
     const sf = t.has('shooFail', n0);
     check(tag, '正被驱赶时当着她的面又捣乱：驱赶无效，改成抓', seen && !!sf && sf.reason === 'again' && t.K.shoo === false && (t.K.state === 'chase' || t.K.state === 'carry'), `看得见 ${seen}，原因 ${sf ? sf.reason : '-'}`);
   }
-  // ⑧ ⑨ 捣乱以后躲起来：她赶过来 / 正在驱赶时，藏着的小狗 = 不在现场——不对着它驱赶、不抓，张望一下回去巡逻。
-  //    （她一路朝着现场跑，总能看到小狗钻进去；以前这样算“看着进去”，躲藏形同虚设。“看着钻进去会被揪出来”只在她动手抓的时候才算，见 5 的对照项。）
+  // ⑧ ⑨ 捣乱以后躲起来：钻进去的那一刻在她的视野里 = 被看见了，躲不住——她照样先驱赶，赖着不出来再抓；
+  //    没被看见（她还在视野之外）= 不在现场——她到了找不到，张望一下回去巡逻，不驱赶不抓。
   for (const far of [false, true]) {
     const bush = FIX.hides.find((h) => h.id === 'bush1');
     let found = null;
@@ -315,17 +315,19 @@ const games = {};
     if (!found) { check(tag, `捣乱后躲起来（${far ? '她还在远处' : '她看着'}）：测试地图上没找到合适的站位`, false); continue; }
     const { sim, id, px, pz } = found, K = sim.keeper, p = sim.pets[0], evs = [];
     sim.debug.notice(id, px, pz, 6, 0.15);
-    let shooAtHidden = 0, sawPatrol = false, wasShoo = false;
+    let shooAtHidden = 0, sawPatrol = false, wasShoo = false, chaseStarts = 0;
     for (let n = 0; n < 60 * 60 && !sim.caught; n++) {
-      sim.command(id, { moveTo: { x: bush.x, z: bush.z } }); sim.update(1 / 60); evs.push(...sim.events); sim.clearEvents();
+      sim.command(id, { moveTo: { x: bush.x, z: bush.z } }); sim.update(1 / 60); evs.push(...sim.events);
+      for (const e of sim.events) if (e.type === 'chaseStart') chaseStarts++;
+      sim.clearEvents();
       if (K.state === 'chase' && K.shoo) wasShoo = true;
       if (p.hidden && K.state === 'chase' && K.action === 'shoo') shooAtHidden += 1 / 60;
       if (p.hidden && K.state === 'patrol') { sawPatrol = true; break; }
     }
-    const hideEv = evs.find((e) => e.type === 'hide'), sh = evs.find((e) => e.type === 'shooed');
-    if (!far) check(tag, '她看着小狗捣乱、正要驱赶时小狗躲进灌木：不对着藏起来的小狗驱赶，不抓，找不到就回去巡逻',
-      wasShoo && !!hideEv && hideEv.seen === false && shooAtHidden < 0.2 && sim.caught === 0 && !evs.some((e) => e.type === 'shooFail') && !!sh && sh.hid === true && sawPatrol,
-      `驱赶过 ${wasShoo}，hide=${JSON.stringify(hideEv)}，对着藏着的小狗驱赶 ${f2(shooAtHidden)}s，被抓 ${sim.caught}，shooed=${JSON.stringify(sh)}，回到巡逻 ${sawPatrol}`);
+    const hideEv = evs.find((e) => e.type === 'hide'), sf = evs.find((e) => e.type === 'shooFail'), ct = evs.find((e) => e.type === 'caught');
+    if (!far) check(tag, '她看着小狗钻进灌木（在她的视野里）：躲不住——先对着它驱赶，赖着不出来再抓，不在驱赶和抓之间打转',
+      !!hideEv && hideEv.seen === true && wasShoo && shooAtHidden > 1 && !!sf && sf.reason === 'stay' && sim.caught === 1 && !!ct && evs.indexOf(ct) > evs.indexOf(sf) && chaseStarts === 1,
+      `hide=${JSON.stringify(hideEv)}，对着藏着的小狗驱赶 ${f2(shooAtHidden)}s，无效原因 ${sf ? sf.reason : '-'}，被抓 ${sim.caught}，开追 ${chaseStarts} 次`);
     else check(tag, '她从远处赶来的路上小狗躲进灌木：到了现场找不到，张望一下回去巡逻，不驱赶不抓',
       !!hideEv && hideEv.seen === false && shooAtHidden < 0.2 && sim.caught === 0 && !evs.some((e) => e.type === 'chaseStart') && sawPatrol,
       `hide=${JSON.stringify(hideEv)}，开追 ${evs.some((e) => e.type === 'chaseStart')}，被抓 ${sim.caught}，回到巡逻 ${sawPatrol}，第 ${f2(sim.time)} 秒`);

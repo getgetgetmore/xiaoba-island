@@ -876,10 +876,9 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
     // 躲藏
     const h = p.pounceT > 0 ? null : world.hideAt(p.x, p.z);
     if (h && !p.hidden) {
-      // “看着钻进去”只在她动手抓的时候才算（追着抓、眼睛盯着）。赶过来的路上、驱赶的时候，小狗躲起来 = 不在现场了：
-      // 她找不到，张望一下回去巡逻。否则她一路朝着现场跑、总能看到小狗钻进去，躲藏就形同虚设。
-      const KK = S.keeper;
-      const seen = local && KK.active && KK.state === 'chase' && !KK.shoo && canSee(p, true);
+      // 钻进去的那一刻在她的视野里（扇形内、没有遮挡，不管她是在巡逻、赶过来还是在驱赶）= 被她看见了：躲不住，她照样知道小狗在哪儿。
+      // 之后按正常流程走——先驱赶，赖着不出来再抓。没被看见 = 不在现场了：她找不到，张望一下回去巡逻。
+      const seen = local && S.keeper.active && canSee(p, true);
       p.hidden = true; p.hideId = h.id; p.hideSeen = seen;
       ev('hide', { petId: p.id, hide: h.id, seen });
     } else if (!h && p.hidden) { p.hidden = false; p.hideId = null; p.hideSeen = false; ev('unhide', { petId: p.id }); }
@@ -1178,7 +1177,7 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
       K.shoo = !again && K.anger < FARM.ANGER_FULL && S.phase !== 'wanted';
       K.shooT = 0; K.shooLostT = 0;
       ev('chaseStart', { x: K.x, z: K.z, shoo: K.shoo });
-      if (again) ev('shooFail', { reason: 'back' });
+      if (again === true) ev('shooFail', { reason: 'back' }); // 'found'（搜的时候又看见了）不用再报一次：驱赶早就无效了
     }
     else if (st !== 'carry') K.target = null;
   }
@@ -1355,7 +1354,8 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
         break;
       }
       case 'search': {
-        if (vis && p.immuneT <= 0 && (K.anger >= FARM.SUSPECT_CHASE || wanted)) { setKState('chase'); break; }
+        // 搜的时候又看见了：接着抓（搜索是从“抓”转过来的，驱赶早就无效了；重新从驱赶开始会在“驱赶 → 抓 → 搜 → 驱赶”里打转）
+        if (vis && p.immuneT <= 0 && (K.anger >= FARM.SUSPECT_CHASE || wanted)) { K.noShoo = 'found'; setKState('chase'); break; }
         K.searchT -= dt;
         if (K.searchT <= 0) { K.anger = Math.max(0, K.anger - FARM.LOST_RELIEF); setKState('return'); break; }
         if (K.waitT > 0) { K.waitT -= dt; look(dt); break; }

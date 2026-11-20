@@ -432,7 +432,7 @@ export function createFarmGame(ctx) {
       case 'splash': if (e.x !== undefined) fx.burst('water', e.x, map.heightAt(e.x, e.z), e.z, 14); break;
       case 'muddy': if (mine) { hud.toast('滚成泥狗啦！去蹭蹭床单？'); } break;
       case 'wash': if (mine) hud.toast('洗干净了'); break;
-      case 'hide': if (mine) hud.toast(e.seen ? '被她看见躲进去了…' : '躲好了，嘘——'); break;
+      case 'hide': if (mine) { if (e.seen) hud.banner('被她看见躲进去了，躲不住！', 2, '#ff9d8a'); else hud.toast('躲好了，嘘——'); } break;
       case 'alert': if (!(tips.alertT > sim.time)) { tips.alertT = sim.time + 8; hud.toast('管理员听到动静，正赶过来！', 2); } break;
       case 'chaseStart': hud.banner(e.shoo ? '管理员来赶你了，快走开！' : '管理员追来了！', 1.8, '#ff9d8a'); break;
       case 'shooFail': hud.banner(e.reason === 'back' ? '又回来捣乱？她要抓你了！' : e.reason === 'again' ? '当着她的面还捣乱？她要抓你了！' : '还不走？她要抓你了！', 2, '#ff9d8a'); break;
