@@ -31,6 +31,7 @@ import { rulesFor } from './farm/rules.js';
 import { createLocalNet, createMockNet, defaultProfile, sanitizeChat, MSG, NET } from './farm/net.js';
 import { createFarmHud } from './farm/hud.js';
 import { createFarmFx } from './farm/fx.js';
+import { createFarmVision } from './farm/vision.js';
 import { createShelfLeash } from './walk/leash.js';
 
 const VIEW_H = 9;                 // 画面高度对应的世界单位（斜俯视正交相机）
@@ -85,7 +86,7 @@ export function createFarmGame(ctx) {
   };
   game.shelfItem = createShelfLeash(ctx, () => start());
 
-  let built = false, map = null, lighting = null, pixel = null, pixelH = 0, actors = null, hud = null, fx = null;
+  let built = false, map = null, lighting = null, pixel = null, pixelH = 0, actors = null, hud = null, fx = null, vision = null;
   let viewW = 1, viewH = 1;
   let petId = null, bot = null, saved = null, savedR = null, cursorSaved = '';
   let endT = 0, poseAcc = 0, hintT = 0;
@@ -115,6 +116,7 @@ export function createFarmGame(ctx) {
     });
     fx = createFarmFx(scene, farmToonMaterial.clone());
     fx.group.material.vertexColors = false;
+    vision = createFarmVision({ heightAt: map.heightAt });
     hud = createFarmHud(canvas().parentElement || document.body);
     game.clock = createFarmClock({ env: ctx.env });
   }
@@ -324,6 +326,7 @@ export function createFarmGame(ctx) {
     for (const k of Object.keys(tips)) delete tips[k];
     actors.reset();
     fx.clear();
+    vision.reset();
     hud.hideResult(); hud.clear();
     hud.setTime(FARM.DURATION); hud.setScore(0); hud.setAnger(0, false); hud.setCaught(0, FARM.CAUGHT_MAX);
     hud.hint(HINT);
@@ -399,6 +402,7 @@ export function createFarmGame(ctx) {
     lock.on = false;
     teardownNet();
     actors.reset();
+    if (vision) vision.reset();
     // 归还小狗：挂回岛的场景、缩放 / 旋转复原（位置由 brain 的 mover 下一帧写回）
     const g = dog.group;
     g.removeFromParent();
@@ -540,6 +544,7 @@ export function createFarmGame(ctx) {
     if (map.update) map.update(dt);
     if (lighting.update) lighting.update(dt);
     fx.update(dt);
+    vision.update(sim, dt, game.phase === 'play'); // 管理员的视野范围：直接画在地面上
     placeCamera(false, dt);
     // ---- 界面
     const K = sim.keeper;
@@ -575,6 +580,7 @@ export function createFarmGame(ctx) {
       active: game.active, phase: game.phase, simPhase: sim ? sim.phase : null, time: sim ? +sim.time.toFixed(1) : 0, score: sim ? sim.score : 0, caught: sim ? sim.caught : 0,
       pet: p ? { x: +p.x.toFixed(2), z: +p.z.toFixed(2), action: p.action, muddy: p.muddy, hidden: p.hidden, held: p.held } : null,
       keeper: sim && sim.keeper ? { state: sim.keeper.state, anger: +sim.keeper.anger.toFixed(2) } : null,
+      vision: vision ? vision.info() : null,
       pets: sim ? sim.pets.length : 0, animals: sim ? sim.animals.length : 0, plates: hud ? hud.plateCount() : 0,
       zoom: +view.cur.toFixed(2), zone: view.zone ? view.zone.id : null, yaw: +view.yaw.toFixed(2), pitch: +view.pitch.toFixed(2), internal: pixel ? [pixel.width, pixel.height] : null, net: game.net ? game.net.kind : null, clock: game.clock ? game.clock.phase : null,
       paused: !!game.paused, locked: lock.on, cursor: canvas() ? canvas().style.cursor : '', marks: hud ? hud.markCount() : 0, prompts: hud ? hud.markTexts() : [], toast: hud ? hud.lastToast : '', banner: hud ? hud.lastBanner : '', result: game.result,

@@ -51,10 +51,37 @@ export const farmSeeThrough = {
   uSeeGrid: { value: new THREE.Vector2(0, 0) },   // 镜头对齐像素格后的格子序号（pixel.js 的 onSnap 给）
   uSeeMax: { value: 0.7 },                        // 最透的时候丢掉多少像素：0.5 = 棋盘格一半
 };
+// ---------------------------------------------------------------- 管理员的视野显示
+// 不另外铺一张扇形网格（地面是一格一格有高低的，铺不平），而是直接在卡通材质里上色：
+// 片元的世界坐标落在她的视野里（扇形内、没超过这条视线能看到的距离；或者贴身的那一小圈）而且面朝上，就往视野的颜色上偏一点。
+// 这样地面、菜畦、草垛顶上都被“照”到，墙面和角色不上色。uVisDist 是扇形里均匀分布的 FARM_VIS_RAYS 条视线各能看多远
+// （被房子 / 树挡住的地方短），所以画出来的就是她真正看得见的范围。farm/vision.js 每帧更新这些值。
+export const FARM_VIS_RAYS = 49;
+export const farmVision = {
+  uVisOn: { value: 0 },
+  uVisPos: { value: new THREE.Vector2(0, 0) },      // 她的位置 (x, z)
+  uVisDir: { value: new THREE.Vector2(0, 1) },      // 她面朝的方向 (sin 朝向, cos 朝向)
+  uVisHalf: { value: 0.96 },                        // 视野半角（弧度）
+  uVisNear: { value: 1.4 },                         // 贴身察觉的半径（不看朝向）
+  uVisY: { value: 0 },                              // 她脚下的地面高度：只给地面附近的东西上色（屋顶、树冠不上）
+  uVisDist: { value: new Float32Array(FARM_VIS_RAYS) },
+  uVisColor: { value: new THREE.Color(0xfff3b0) },
+  uVisAmt: { value: 0.25 },                         // 里面上色的强度
+  uVisRim: { value: 0.6 },                          // 边线的强度
+};
 farmToonMaterial.onBeforeCompile = (shader) => {
-  Object.assign(shader.uniforms, farmSeeThrough);
-  shader.vertexShader = 'attribute vec4 aOcc;\nvarying float vSee;\nuniform float uSeeOn;\nuniform vec3 uSeeDog, uSeeR, uSeeU, uSeeB;\n' +
+  Object.assign(shader.uniforms, farmSeeThrough, farmVision);
+  shader.vertexShader = 'attribute vec4 aOcc;\nvarying float vSee;\nvarying vec3 vVisW;\nvarying float vVisUp;\nuniform float uSeeOn;\nuniform vec3 uSeeDog, uSeeR, uSeeU, uSeeB;\n' +
     shader.vertexShader.replace('#include <fog_vertex>', `#include <fog_vertex>
+  {
+    vec4 vw = vec4(transformed, 1.0);
+    vec3 vn = objectNormal;
+    #ifdef USE_INSTANCING
+      vw = instanceMatrix * vw; vn = mat3(instanceMatrix) * vn;
+    #endif
+    vVisW = (modelMatrix * vw).xyz;
+    vVisUp = normalize(mat3(modelMatrix) * vn).y;
+  }
   vSee = 0.0;
   if (uSeeOn > 0.5 && aOcc.z > 0.0) {
     vec3 dd = uSeeDog - vec3(aOcc.x, uSeeDog.y - 0.35 + aOcc.w * 0.55, aOcc.y); // 小狗相对树冠中心
@@ -63,8 +90,33 @@ farmToonMaterial.onBeforeCompile = (shader) => {
     float front = dot(vec3(aOcc.x - uSeeDog.x, 0.0, aOcc.y - uSeeDog.z), uSeeB);   // > 0：树根比小狗离镜头近
     vSee = (1.0 - smoothstep(aOcc.z + 0.1, aOcc.z + 0.5, sx)) * (1.0 - smoothstep(hv + 0.1, hv + 0.5, sy)) * smoothstep(0.1, 0.5, front);
   }`);
-  shader.fragmentShader = 'varying float vSee;\nuniform vec2 uSeeGrid;\nuniform float uSeeMax;\n' +
+  shader.fragmentShader = 'varying float vSee;\nvarying vec3 vVisW;\nvarying float vVisUp;\nuniform vec2 uSeeGrid;\nuniform float uSeeMax;\n' +
+    `uniform float uVisOn, uVisHalf, uVisNear, uVisY, uVisAmt, uVisRim;\nuniform vec2 uVisPos, uVisDir;\nuniform vec3 uVisColor;\nuniform float uVisDist[${FARM_VIS_RAYS}];\n` +
     shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+  if (uVisOn > 0.5 && vVisUp > 0.35 && vVisW.y < uVisY + 1.0 && vVisW.y > uVisY - 2.0) {
+    vec2 vd = vVisW.xz - uVisPos;
+    float vr = length(vd);
+    if (vr < 16.0) {
+      float ang = atan(vd.x * uVisDir.y - vd.y * uVisDir.x, dot(vd, uVisDir)); // 相对她面朝方向的夹角
+      float aa = abs(ang), lim = uVisNear, inFan = 0.0;
+      if (aa <= uVisHalf) {
+        float t = (ang / uVisHalf * 0.5 + 0.5) * float(${FARM_VIS_RAYS - 1});
+        int i0 = int(clamp(floor(t), 0.0, float(${FARM_VIS_RAYS - 1})));
+        int i1 = min(i0 + 1, ${FARM_VIS_RAYS - 1});
+        float far = mix(uVisDist[i0], uVisDist[i1], fract(t));
+        if (far > lim) { lim = far; inFan = 1.0; }
+      }
+      if (vr < lim) {
+        // 里面：两格一组的棋盘格深浅交替（像素画里的半透明）；外沿和扇形的两条边：一圈实一点的线
+        vec2 cg = floor(vVisW.xz * 4.0);
+        float chk = mod(cg.x + cg.y, 2.0);
+        float rim = step(lim - 0.13, vr);
+        if (inFan > 0.5 && vr > uVisNear) rim = max(rim, step(uVisHalf - 0.13 / max(vr, 0.5), aa));
+        float va = max(rim * uVisRim, uVisAmt * (0.7 + 0.3 * chk));
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, uVisColor, va);
+      }
+    }
+  }
   if (vSee > 0.02) {
     vec2 q = mod(floor(gl_FragCoord.xy) + uSeeGrid, 2.0);
     float thr = q.x < 0.5 ? (q.y < 0.5 ? 0.2 : 0.8) : (q.y < 0.5 ? 0.6 : 0.4);
