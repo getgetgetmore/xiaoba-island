@@ -876,7 +876,10 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
     // 躲藏
     const h = p.pounceT > 0 ? null : world.hideAt(p.x, p.z);
     if (h && !p.hidden) {
-      const seen = local && S.keeper.active && canSee(p, true);
+      // “看着钻进去”只在她动手抓的时候才算（追着抓、眼睛盯着）。赶过来的路上、驱赶的时候，小狗躲起来 = 不在现场了：
+      // 她找不到，张望一下回去巡逻。否则她一路朝着现场跑、总能看到小狗钻进去，躲藏就形同虚设。
+      const KK = S.keeper;
+      const seen = local && KK.active && KK.state === 'chase' && !KK.shoo && canSee(p, true);
       p.hidden = true; p.hideId = h.id; p.hideSeen = seen;
       ev('hide', { petId: p.id, hide: h.id, seen });
     } else if (!h && p.hidden) { p.hidden = false; p.hideId = null; p.hideSeen = false; ev('unhide', { petId: p.id }); }
@@ -1185,7 +1188,8 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
   function endShoo() {
     const K = S.keeper;
     K.anger = Math.min(1, K.anger + FARM.SHOO_ANGER); K.shooCd = FARM.SHOO_CD; K.shooX = K.sceneX; K.shooZ = K.sceneZ;
-    ev('shooed', { x: K.x, z: K.z, anger: K.anger });
+    const lp = localPet();
+    ev('shooed', { x: K.x, z: K.z, anger: K.anger, hid: !!(lp && lp.hidden) }); // hid：小狗是躲起来让她找不到的（不是被赶开的）
     setKState('return');
   }
   /**
@@ -1317,6 +1321,10 @@ export function createFarmSim({ map, rules, seed = 1, mode = 'caper', test = {} 
         const speed = kr.speed * (wanted ? FARM.WANTED_SPEED : 1) * (K.shoo ? 0.9 : 1);
         K.action = 'run';
         const d = Math.hypot(p.x - K.x, p.z - K.z);
+        if (K.shoo && !aware) { // 驱赶到一半小狗不见了（躲起来了 / 跑没影了）：站住张望，SHOO_HIDE_T 之后回去巡逻（见上）
+          K.speed = 0; K.action = 'look'; K.path = []; K.gx = 1e9;
+          break;
+        }
         if (K.shoo && aware && d < 1.1) { // 驱赶：到跟前就站住，冲着小狗挥手（不贴上去、不抓）
           K.speed = 0; K.action = 'shoo'; K.path = []; K.gx = 1e9;
           if (d > 1e-3) turnKeeper(Math.atan2(p.x - K.x, p.z - K.z), dt);

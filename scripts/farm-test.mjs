@@ -295,6 +295,41 @@ const games = {};
     const sf = t.has('shooFail', n0);
     check(tag, '正被驱赶时当着她的面又捣乱：驱赶无效，改成抓', seen && !!sf && sf.reason === 'again' && t.K.shoo === false && (t.K.state === 'chase' || t.K.state === 'carry'), `看得见 ${seen}，原因 ${sf ? sf.reason : '-'}`);
   }
+  // ⑧ ⑨ 捣乱以后躲起来：她赶过来 / 正在驱赶时，藏着的小狗 = 不在现场——不对着它驱赶、不抓，张望一下回去巡逻。
+  //    （她一路朝着现场跑，总能看到小狗钻进去；以前这样算“看着进去”，躲藏形同虚设。“看着钻进去会被揪出来”只在她动手抓的时候才算，见 5 的对照项。）
+  for (const far of [false, true]) {
+    const bush = FIX.hides.find((h) => h.id === 'bush1');
+    let found = null;
+    for (let k = 0; k < 16 && !found; k++) {
+      const a = (k * Math.PI) / 8, sx = Math.sin(a), cz = Math.cos(a), dist = far ? 17 : 7;
+      const sim = createFarmSim({ map: FIX, seed: 2, test: { skipIntro: true, noAnimals: true, noGoose: true, keeperPatrol: [[bush.x + sx * dist, bush.z + cz * dist]] } });
+      const id = sim.addPet({}), gate = (oi) => sim.objects[oi].done;
+      const px = bush.x + sx * 2, pz = bush.z + cz * 2, kx = bush.x + sx * dist, kz = bush.z + cz * dist;
+      if (!sim.world.nav('pet').freeAt(px, pz, gate) || sim.world.hideAt(px, pz) || !sim.world.nav('keeper').freeAt(kx, kz, gate)) continue;
+      sim.debug.placePet(id, px, pz);
+      sim.debug.setKeeper({ x: kx, z: kz, heading: Math.atan2(px - kx, pz - kz), anger: 0, state: 'patrol' });
+      sim.update(1 / 60);
+      if (!far && !sim.canKeeperSee(sim.pets[0])) continue; // 近的那组要她一开始就看得见小狗
+      found = { sim, id, px, pz };
+    }
+    if (!found) { check(tag, `捣乱后躲起来（${far ? '她还在远处' : '她看着'}）：测试地图上没找到合适的站位`, false); continue; }
+    const { sim, id, px, pz } = found, K = sim.keeper, p = sim.pets[0], evs = [];
+    sim.debug.notice(id, px, pz, 6, 0.15);
+    let shooAtHidden = 0, sawPatrol = false, wasShoo = false;
+    for (let n = 0; n < 60 * 60 && !sim.caught; n++) {
+      sim.command(id, { moveTo: { x: bush.x, z: bush.z } }); sim.update(1 / 60); evs.push(...sim.events); sim.clearEvents();
+      if (K.state === 'chase' && K.shoo) wasShoo = true;
+      if (p.hidden && K.state === 'chase' && K.action === 'shoo') shooAtHidden += 1 / 60;
+      if (p.hidden && K.state === 'patrol') { sawPatrol = true; break; }
+    }
+    const hideEv = evs.find((e) => e.type === 'hide'), sh = evs.find((e) => e.type === 'shooed');
+    if (!far) check(tag, '她看着小狗捣乱、正要驱赶时小狗躲进灌木：不对着藏起来的小狗驱赶，不抓，找不到就回去巡逻',
+      wasShoo && !!hideEv && hideEv.seen === false && shooAtHidden < 0.2 && sim.caught === 0 && !evs.some((e) => e.type === 'shooFail') && !!sh && sh.hid === true && sawPatrol,
+      `驱赶过 ${wasShoo}，hide=${JSON.stringify(hideEv)}，对着藏着的小狗驱赶 ${f2(shooAtHidden)}s，被抓 ${sim.caught}，shooed=${JSON.stringify(sh)}，回到巡逻 ${sawPatrol}`);
+    else check(tag, '她从远处赶来的路上小狗躲进灌木：到了现场找不到，张望一下回去巡逻，不驱赶不抓',
+      !!hideEv && hideEv.seen === false && shooAtHidden < 0.2 && sim.caught === 0 && !evs.some((e) => e.type === 'chaseStart') && sawPatrol,
+      `hide=${JSON.stringify(hideEv)}，开追 ${evs.some((e) => e.type === 'chaseStart')}，被抓 ${sim.caught}，回到巡逻 ${sawPatrol}，第 ${f2(sim.time)} 秒`);
+  }
 }
 // 火气随时间慢慢消
 {

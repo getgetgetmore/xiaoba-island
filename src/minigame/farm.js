@@ -436,7 +436,7 @@ export function createFarmGame(ctx) {
       case 'alert': if (!(tips.alertT > sim.time)) { tips.alertT = sim.time + 8; hud.toast('管理员听到动静，正赶过来！', 2); } break;
       case 'chaseStart': hud.banner(e.shoo ? '管理员来赶你了，快走开！' : '管理员追来了！', 1.8, '#ff9d8a'); break;
       case 'shooFail': hud.banner(e.reason === 'back' ? '又回来捣乱？她要抓你了！' : e.reason === 'again' ? '当着她的面还捣乱？她要抓你了！' : '还不走？她要抓你了！', 2, '#ff9d8a'); break;
-      case 'shooed': tips.shooedT = sim.time; hud.toast('被赶开了，她回去巡逻了', 1.8); break;
+      case 'shooed': tips.shooedT = sim.time; hud.toast(e.hid ? '她没找到你，回去巡逻了' : '被赶开了，她回去巡逻了', 1.8); break;
       case 'chaseEnd': case 'lost': if (!sim.finished && tips.shooedT !== sim.time) hud.toast('甩掉她了'); break;
       case 'caught': if (mine) { hud.banner(e.count >= FARM.CAUGHT_MAX ? '被牵回家了…' : '被抓住了！', 2, '#ff9d8a'); hud.setCaught(e.count, FARM.CAUGHT_MAX); } break;
       case 'landed': fx.burst('dust', e.x, map.heightAt(e.x, e.z) + 0.1, e.z, 9); if (mine) hud.toast('被扔回路上了，快跑！', 1.6); break;
