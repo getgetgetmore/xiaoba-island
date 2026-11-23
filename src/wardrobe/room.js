@@ -526,8 +526,9 @@ export function createWardrobeRoom() {
   // 单独一个 group 加到 scene（横跨东西两面墙，不跟任何一面墙消失）
   const curtainGroup = new THREE.Group(); curtainGroup.name = 'stage-curtain';
   scene.add(curtainGroup);
-  // 幕布的颜色（用户定：圣诞绿，配金色的滚边、绑带和流苏）。lo 褶谷 / mid 中间 / hi 褶峰 / band 顶上的小横幅 / glow 自发光
-  const CLOTH = { lo: 0x0e3b22, mid: 0x1b6a3a, hi: 0x3d9a5c, band: 0x175c33, glow: 0x061f0f };
+  // 幕布的颜色（用户定：米白，配金色的滚边、绑带和流苏）。lo 褶谷 / mid 中间 / hi 褶峰 / band 顶上的小横幅 / glow 自发光
+  // 备选的圣诞绿：{ lo: 0x0e3b22, mid: 0x1b6a3a, hi: 0x3d9a5c, band: 0x175c33, glow: 0x061f0f }
+  const CLOTH = { lo: 0x9c8452, mid: 0xe4d3a6, hi: 0xf6ecd0, band: 0xd4c08e, glow: 0x1c160c };
   const clothMix = (t, g) => { // t: 0 褶谷 → 1 褶峰；g: 整体明暗
     const c = _col;
     if (t < 0.5) c.setHex(mixHex(CLOTH.lo, CLOTH.mid, t * 2)); else c.setHex(mixHex(CLOTH.mid, CLOTH.hi, (t - 0.5) * 2));
