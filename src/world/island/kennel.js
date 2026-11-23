@@ -12,6 +12,8 @@ const ROOF_W = 1.54; // 屋顶单侧坡面的宽度（原 1.7：屋檐太低，�
 //   zs      各格子中心的 z（第 0 格最靠近门口/镜头）
 //   y0/h    格子底面高度 / 格子净高；w 格子净宽；depth 架子进深
 export const SHELF = { zs: [0.72, 0.24, -0.24, -0.72], y0: 0.34, h: 0.5, w: 0.445, depth: 0.26, back: 0.03 };
+// 衣帽间的门：在后墙内侧正中。w / h 门扇的宽和高，y0 门底离地，合页在门的左边（x = -w/2），门扇朝屋里（+z）打开。
+export const WARDROBE_DOOR = { w: 0.56, h: 0.9, y0: 0.03, swing: 1.85 };
 
 export function buildKennel() {
   const rng = mulberry32(2025);
@@ -162,13 +164,54 @@ export function buildKennel() {
     // 山墙边的破木条
     for (const sz of [-1, 1]) b.add(new THREE.BoxGeometry(ROOF_W + 0.02, 0.08, 0.05), { pos: [cx, cy - 0.06, sz * 1.34], rot: [0, 0, -s * phi + (rng() - 0.5) * 0.03], color: C.woodGreyDark });
   }
+  // 屋顶的内面：波纹板是单面的，从屋里往上看会直接看到天（镜头钻进屋里进衣帽间时就露馅了）。
+  // 把两个坡面原样再加一份、三角形绕向反过来（朝下的面），位置和外面完全重合，所以不会从屋顶上穿出来。
+  for (const s of [1, -1]) {
+    const dirx = s * Math.cos(phi), diry = -Math.sin(phi), sc = ROOF_W / 2 + 0.01;
+    const g = roofGeo(s), idx = g.index.array;
+    for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
+    // 沿坡面法线往下挪 0.03：两层完全重合的话，里面这层会在外面那层上投出一粒一粒的阴影斑点
+    b.add(g, { pos: [dirx * sc - s * Math.sin(phi) * 0.03, 1.92 + diry * sc + 0.045 - Math.cos(phi) * 0.03, 0], rot: [0, 0, -s * phi + (s > 0 ? 0.015 : -0.02)], color: C.innerDark, ao: false });
+  }
   // 屋脊
   b.add(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 6), { pos: [0, 1.97, 0], rot: [Math.PI / 2, 0, 0], color: C.roofDark, ao: false });
 
   // ---- 内部 ----
   // （原来的静态旧垫子已移除：现在是可以被狗叼出去晒太阳的独立狗垫，见 mat.js）
   b.add(new THREE.IcosahedronGeometry(0.07, 1), { pos: [-0.62, 0.07, -0.7], color: C.rust, ao: false }); // 小球
-  b.add(new THREE.IcosahedronGeometry(1, 1), { pos: [0.1, 0.07, -0.75], scale: [0.34, 0.09, 0.2], color: 0x8a7a5a, ao: false }); // 枕头
+  b.add(new THREE.IcosahedronGeometry(1, 1), { pos: [0.66, 0.07, -0.72], scale: [0.26, 0.09, 0.2], color: 0x8a7a5a, ao: false }); // 枕头（挪到一边：后墙正中现在是衣帽间的门）
+
+  // ---- 衣帽间的门（后墙内侧正中，从拱门望进去正好看得见）----
+  // 门框、门楣上的小衣架牌并在主体里；门扇单独一个几何（原点在合页上，绕 y 轴转就是开门）；门后是一块发暖光的“门洞”平面。
+  // 后墙并没有真的开洞（墙后面就是岛上的室外）：门扇朝屋里打开，露出的是这块发光的平面，镜头推进去以后画面淡入衣帽间。
+  const WD = WARDROBE_DOOR, zw = -D + T; // 后墙的内表面
+  for (const sx of [-1, 1]) b.add(new THREE.BoxGeometry(0.07, WD.h + 0.06, 0.07), { pos: [sx * (WD.w / 2 + 0.035), WD.y0 + (WD.h + 0.06) / 2, zw + 0.03], rot: [0, 0, sx * 0.012], color: C.woodWarm, ao: false });
+  b.add(new THREE.BoxGeometry(WD.w + 0.2, 0.08, 0.08), { pos: [0, WD.y0 + WD.h + 0.04, zw + 0.035], rot: [0, 0, -0.02], color: C.woodGreyLight, ao: false });
+  b.add(new THREE.BoxGeometry(WD.w + 0.16, 0.035, 0.1), { pos: [0, WD.y0 - 0.005, zw + 0.045], color: C.woodGreyDark, ao: false }); // 门槛
+  {
+    // 门楣上的小木牌：一只衣架
+    const sy = WD.y0 + WD.h + 0.2, sz = zw + 0.04;
+    b.add(new THREE.BoxGeometry(0.3, 0.2, 0.03), { pos: [0, sy, sz], rot: [0, 0, 0.05], color: C.cream, ao: false });
+    cylBetween(b, [-0.1, sy - 0.04, sz + 0.025], [0, sy + 0.03, sz + 0.025], 0.012, 0.012, 4, { color: C.woodDeep, ao: false });
+    cylBetween(b, [0.1, sy - 0.04, sz + 0.025], [0, sy + 0.03, sz + 0.025], 0.012, 0.012, 4, { color: C.woodDeep, ao: false });
+    cylBetween(b, [-0.1, sy - 0.04, sz + 0.025], [0.1, sy - 0.04, sz + 0.025], 0.012, 0.012, 4, { color: C.woodDeep, ao: false });
+    b.add(new THREE.TorusGeometry(0.022, 0.008, 4, 8, Math.PI * 1.4), { pos: [0, sy + 0.052, sz + 0.025], rot: [0, 0, -0.4], color: C.woodDeep, ao: false });
+  }
+  // 门扇：4 块竖木板 + 两道横档 + 黄铜门把手。局部坐标：x 从合页（0）到门边（WD.w），y 从门底起，z 朝屋里
+  const door = new GeoBuilder({ seed: 53, jitter: 0.02, aoH: 0.4, aoK: 0.12 });
+  {
+    const n = 4, pw = WD.w / n;
+    for (let i = 0; i < n; i++) {
+      const col = [C.woodWarm, C.woodGreyLight, C.woodWarm, C.woodGrey][i];
+      door.add(new THREE.BoxGeometry(pw - 0.008, WD.h - (i % 2 ? 0.012 : 0), 0.035), { pos: [pw / 2 + i * pw, WD.h / 2, 0], rot: [0, 0, (rng() - 0.5) * 0.012], color: mixHex(col, 0xffffff, 0.08), ao: false });
+    }
+    for (const y of [0.16, WD.h - 0.16]) door.add(new THREE.BoxGeometry(WD.w - 0.03, 0.06, 0.02), { pos: [WD.w / 2, y, 0.026], color: C.woodDeep, ao: false });
+    door.add(new THREE.IcosahedronGeometry(0.032, 1), { pos: [WD.w - 0.07, WD.h * 0.5, 0.05], color: 0xe0a53a, ao: false }); // 门把手
+    for (const y of [0.16, WD.h - 0.16]) door.add(new THREE.BoxGeometry(0.03, 0.09, 0.025), { pos: [0.012, y, 0.03], color: 0x4a4038, ao: false }); // 合页
+  }
+  // 门洞里的光：一块平面（门扇关着时被挡住）
+  const portal = new THREE.PlaneGeometry(WD.w, WD.h);
+  portal.translate(0, WD.y0 + WD.h / 2, zw + 0.012);
   // 门口石阶
   b.add(jitterGeo(new THREE.BoxGeometry(1.2, 0.05, 0.38, 3, 1, 2), 0.012), { pos: [0, 0.0, D + 0.2], color: C.stone });
 
@@ -196,5 +239,5 @@ export function buildKennel() {
   food.add(new THREE.CylinderGeometry(0.135, 0.12, 0.03, 9), { pos: [bowl[0], 0.108, bowl[2]], color: 0x7a5236, ao: false });
   for (let i = 0; i < 11; i++) { const a = rng() * Math.PI * 2, r = Math.sqrt(rng()) * 0.1; food.add(new THREE.IcosahedronGeometry(0.03, 0), { pos: [bowl[0] + Math.cos(a) * r, 0.125 + rng() * 0.022, bowl[2] + Math.sin(a) * r], color: mixHex(0x8a6a48, 0x5c3a2e, rng()), ao: false }); }
 
-  return { main: b.build(), glow: glow.build(), food: food.build() };
+  return { main: b.build(), glow: glow.build(), food: food.build(), door: door.build(), portal };
 }

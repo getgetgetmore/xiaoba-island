@@ -294,8 +294,13 @@ export function createBrain(ctx) {
   brain.needKennel = () => S.needKennel();
   brain.canGame = () => (brain.mode === 'auto' || brain.mode === 'pet') && !(S.stick && S.stick.state !== 'hidden')
     && !(S.matCtl && S.matCtl.carried) && !S.needKennel() && flinch === 0;
-  brain.enterGame = (controller) => {
-    if (!controller || typeof controller.update !== 'function' || !brain.canGame()) return false;
+  /** 换装：和 canGame 一样，但下雨避雨、夜里睡觉时也可以（小狗在窝里换衣服不受天气和时间影响） */
+  brain.canDress = () => (brain.mode === 'auto' || brain.mode === 'pet') && !(S.stick && S.stick.state !== 'hidden')
+    && !(S.matCtl && S.matCtl.carried) && flinch === 0;
+  /** opts.anytime：需要回窝（下雨 / 深夜）时也允许接管（换装用） */
+  brain.enterGame = (controller, opts) => {
+    if (!controller || typeof controller.update !== 'function') return false;
+    if (!(opts && opts.anytime ? brain.canDress() : brain.canGame())) return false;
     if (brain.mode === 'pet') pet.exit();
     if (cur) endBehavior();
     flinch = 0;

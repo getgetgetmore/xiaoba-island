@@ -11,6 +11,8 @@ import { createPainterly } from './render/painterly.js';
 import { createFarmGame } from './minigame/farm.js';
 import { createFishing } from './minigame/fishing.js';
 import { createEgretVisits } from './world/egretVisit.js';
+import { createWardrobe } from './wardrobe/wardrobe.js';
+import { createWardrobeRoom } from './wardrobe/room.js';
 
 const params = parseParams();
 const errors = [];
@@ -31,7 +33,11 @@ const ctx = {
 let game = null; // 遛狗小游戏（boot 里创建）；game.active 时主循环改走小游戏
 let fishing = null; // 钓鱼小游戏（boot 里创建）；不换场景、不暂停岛的模拟，只接管镜头取景、小狗和指针交互
 let travel = null; // 白鹭来访 / 乘鹭出门（boot 里创建）
+let wardrobe = null; // 换装入口（boot 里创建）：点小屋正面 → 镜头推进小屋 → 衣帽间
 const fishingOn = () => !!(fishing && fishing.active);
+const wardrobeOn = () => !!(wardrobe && wardrobe.active);
+/** 有哪个“接管画面”的东西在进行（钓鱼 / 换装）：岛上的视角操作、点穿、放大镜都让开 */
+const overlayOn = () => fishingOn() || wardrobeOn();
 
 // ---------------- 调试入口（尽早挂出，装载期间也能读 errors） ----------------
 let fps = 60;
@@ -152,7 +158,7 @@ const mag = { on: false, dwell: 0, away: 0 };
 function updateShelfMagnify(dt) {
   const sh = ctx.island && ctx.island.shelf;
   if (!sh || !renderer) return;
-  const idle = (!ctx.stick || ctx.stick.state === 'hidden') && !fishingOn();
+  const idle = (!ctx.stick || ctx.stick.state === 'hidden') && !overlayOn();
   const over = idle && !!sh.hovered;
   if (!mag.on) {
     mag.dwell = over && user.zoomT <= 1.02 ? mag.dwell + dt : 0;
@@ -168,6 +174,7 @@ function updateShelfMagnify(dt) {
   }
 }
 
+const camLook = new THREE.Vector3();
 function applyView() {
   const cam = ctx.camera;
   const aspect = viewW / viewH;
@@ -183,6 +190,15 @@ function applyView() {
   cam.far = dist + 320;
   cam.aspect = aspect;
   cam.fov = CAM_FOV;
+  // 换装入口：镜头从平时的位置平滑交给脚本路线（推进小屋），camW = 脚本占多少
+  const ww = wardrobe && wardrobe.camW > 0 ? wardrobe.camW : 0;
+  if (ww > 0) {
+    camLook.set(view.tx, view.ty, view.tz).lerp(wardrobe.camLook, ww);
+    cam.position.lerp(wardrobe.camPos, ww);
+    cam.near = cam.near + (0.05 - cam.near) * Math.min(1, ww * 3); // 要钻进屋里：近裁剪面收到很近
+    cam.fov = CAM_FOV + (wardrobe.camFov - CAM_FOV) * ww;         // 屋里地方小：视角放宽
+    cam.lookAt(camLook);
+  } else
   cam.lookAt(view.tx, view.ty, view.tz);
   // 缩放 = 只渲染完整画面里以 (cx, cy) 为中心的一小块（视图裁切），透视关系不变，鼠标下的那一点保持不动
   if (user.zoom > 1.001) {
@@ -226,6 +242,7 @@ function updateBackdrop(dt, snap) {
   let want = Math.min(viewW, viewH * 1.2) >= BACKDROP_MIN ? 1 : 0;
   if (params.backdrop !== null && params.backdrop !== undefined) want = params.backdrop;
   else if (focusName) want = 1; // 调试特写保留背景
+  if (wardrobe && wardrobe.camW > 0.3) want = 1; // 镜头钻进小屋：画面要铺满，不做“只留小岛、四周透明”的边缘渐隐
   ctx.view.backdrop = snap ? want : clamp(damp(ctx.view.backdrop, want, 5, dt), 0, 1);
   if (Math.abs(ctx.view.backdrop - want) < 0.004) ctx.view.backdrop = want;
   if (fx) fx.params.edgeFade = 1 - ctx.view.backdrop;
@@ -245,13 +262,14 @@ function resize() {
   }
   applyView();
   if (game) game.resize(w, h);
+  if (wardrobe) wardrobe.resize(w, h);
 }
 // ---------------- 视角操作：滚轮缩放 / 右键旋转 / 中键复位 ----------------
 if (renderer) {
   const el = renderer.domElement;
   el.addEventListener('wheel', (e) => {
     e.preventDefault();
-    if ((game && game.active) || fishingOn()) return; // 小游戏中不缩放岛的视图
+    if ((game && game.active) || overlayOn()) return; // 小游戏 / 换装中不缩放岛的视图
     hit.lastInput = performance.now();
     const r = el.getBoundingClientRect();
     const mx = clamp((e.clientX - r.left) / Math.max(1, r.width), 0, 1);
@@ -261,7 +279,7 @@ if (renderer) {
   }, { passive: false });
   let rot = null;
   el.addEventListener('pointerdown', (e) => {
-    if ((game && game.active) || fishingOn()) return;
+    if ((game && game.active) || overlayOn()) return;
     if (e.button === 2) {
       rot = { id: e.pointerId, x: e.clientX, y: e.clientY, az: user.azT, pitch: user.pitchT };
       try { el.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
@@ -273,7 +291,7 @@ if (renderer) {
     }
   });
   el.addEventListener('pointermove', (e) => {
-    if (!rot || e.pointerId !== rot.id || (game && game.active) || fishingOn()) return;
+    if (!rot || e.pointerId !== rot.id || (game && game.active) || overlayOn()) return;
     if (!(e.buttons & 2)) { rot = null; return; }
     // 横向拖动绕岛 360° 旋转；纵向拖动抬高/压低机位
     user.azT = rot.az - (e.clientX - rot.x) * 0.009;
@@ -309,7 +327,7 @@ pet.hitTest = (cx, cy) => { render(); return hitOpaque(cx, cy); };
 function updateClickThrough() {
   const shell = window.petShell;
   if (!shell || typeof shell.setClickThrough !== 'function' || !renderer) return;
-  if ((game && game.active) || fishingOn()) { // 小游戏：整个窗口都要接收鼠标，不点穿
+  if ((game && game.active) || overlayOn()) { // 小游戏 / 换装：整个窗口都要接收鼠标，不点穿
     if (hit.through) { hit.through = false; shell.setClickThrough(false); }
     return;
   }
@@ -346,13 +364,14 @@ function render() {
   if (!renderer) return;
   // 小游戏进行中画小游戏自己的场景（同样走手绘滤镜），否则画小岛
   const gameOn = !!(game && game.active && game.scene && game.camera);
-  const scene = gameOn ? game.scene : ctx.scene, camera = gameOn ? game.camera : ctx.camera;
+  const roomOn = !gameOn && !!(wardrobe && wardrobe.inRoom && wardrobe.room); // 衣帽间：另一个小场景，同样走手绘滤镜
+  const scene = gameOn ? game.scene : roomOn ? wardrobe.room.scene : ctx.scene, camera = gameOn ? game.camera : roomOn ? wardrobe.room.camera : ctx.camera;
   try {
     // 农场小游戏自己做像素化渲染（低分辨率 + 描边），不走手绘滤镜
     if (gameOn && typeof game.render === 'function' && game.render(renderer)) return;
     if (fx && fx.enabled) {
       try {
-        if (gameOn) fx.params.edgeFade = 0; // 小游戏画面铺满整个窗口，不做边缘渐隐
+        if (gameOn || roomOn) fx.params.edgeFade = 0; // 小游戏 / 衣帽间画面铺满整个窗口，不做边缘渐隐
         fx.render(scene, camera);
         return;
       } catch (e) {
@@ -423,6 +442,24 @@ async function boot() {
     if (ctx.dog && ctx.island && ctx.brain && ctx.brain.enterGame) { travel = createEgretVisits(ctx); ctx.travel = travel; pet.travel = travel; ctx.scene.add(travel.group); }
   } catch (e) { recordError(errors, 'travel', 'create', e); travel = null; ctx.travel = null; }
 
+  // 换装入口：点小屋正面 → 镜头推进小屋 → 衣帽间。期间用户视角（缩放 / 旋转）复位成全景，结束后恢复
+  let wardSaved = null;
+  ctx.gameHooks.onWardrobeStart = () => {
+    wardSaved = mag.on ? null : { az: user.azT, pitch: user.pitchT };
+    mag.on = false; mag.dwell = 0;
+    user.zoomT = 1; user.cxT = 0.5; user.cyT = 0.5; user.pitchT = 0;
+    user.azT = Math.round(user.azT / (Math.PI * 2)) * Math.PI * 2;
+    hit.lastInput = performance.now(); hit.dirty = true;
+  };
+  ctx.gameHooks.onWardrobeStop = () => {
+    if (wardSaved) { user.azT = wardSaved.az; user.pitchT = wardSaved.pitch; }
+    wardSaved = null;
+    hit.lastInput = performance.now(); hit.dirty = true;
+  };
+  try {
+    if (ctx.dog && ctx.island && ctx.island.wardrobeDoor && ctx.brain && ctx.brain.enterGame) { wardrobe = createWardrobe(ctx, { createRoom: createWardrobeRoom }); ctx.wardrobe = wardrobe; pet.wardrobe = wardrobe; wardrobe.resize(viewW, viewH); }
+  } catch (e) { recordError(errors, 'wardrobe', 'create', e); wardrobe = null; ctx.wardrobe = null; }
+
   // brain=off / action=xxx：狗站在草坪中心，朝向镜头偏 35°
   if (!ctx.brain && ctx.dog && ctx.island) {
     const l = ctx.island.anchors.lawn;
@@ -454,6 +491,8 @@ async function boot() {
     if (fishing) { try { fishing.update(dt); } catch (e) { recordError(errors, 'fishing', 'update', e); if (fishing.active) { try { fishing.abort(); } catch (_) { /* ignore */ } } } }
     // 白鹭：在 brain 之后更新（小狗趴在白鹭背上时，位置由它覆盖）
     if (travel) { try { travel.update(dt); } catch (e) { recordError(errors, 'travel', 'update', e); travel = null; ctx.travel = null; if (ctx.dog) ctx.dog.group.visible = true; if (ctx.brain && ctx.brain.mode === 'game') ctx.brain.exitGame(); } }
+    // 换装：同样在 brain 之后更新（在衣帽间里时小狗的位置由它覆盖）
+    if (wardrobe) { try { wardrobe.update(dt); } catch (e) { recordError(errors, 'wardrobe', 'update', e); const w = wardrobe; wardrobe = null; ctx.wardrobe = null; try { if (w.inRoom && ctx.dog) ctx.scene.add(ctx.dog.group); if (ctx.dog) ctx.dog.group.visible = true; if (ctx.island.wardrobeDoor) ctx.island.wardrobeDoor.setOpen(0); if (ctx.brain && ctx.brain.mode === 'game') ctx.brain.exitGame(); } catch (_) { /* ignore */ } } }
     // 动作预览：一次性动作播完后停 0.8 秒再重播
     if (params.action && ctx.dog && ctx.dog.actions.includes(params.action)) {
       const d = ctx.dog;
@@ -497,7 +536,7 @@ async function boot() {
   pet.panel = panel;
   // 小游戏（农场 / 钓鱼）进行中把这个入口关掉，结束后恢复
   let panelHidden = false;
-  const syncPanel = () => { const want = !!((game && game.active) || fishingOn()); if (panel && want !== panelHidden) { panelHidden = want; panel.setHidden(want); } };
+  const syncPanel = () => { const want = !!((game && game.active) || overlayOn()); if (panel && want !== panelHidden) { panelHidden = want; panel.setHidden(want); } };
 
   // 预热：跑几帧让灯光/天空/狗到位，并把相机吸附到目标
   for (let i = 0; i < 3; i++) stepOnce(1 / 30);
@@ -510,7 +549,7 @@ async function boot() {
     raf = requestAnimationFrame(frame);
     // 自适应帧率：桌宠是常驻的小挂件，没人操作时按 30 帧运行（CPU 和显卡占用减半）；
     // 鼠标最近 2.5 秒内在窗口上活动过、或木棍在场（正在逗狗）时按屏幕刷新率运行。URL 参数 fps=60 / fps=30 可强制。
-    const active = (game && game.active) || fishingOn() || params.fps === 60 || (params.fps !== 30 && (now - hit.lastInput < 2500 || (ctx.stick && ctx.stick.state !== 'hidden') || (ctx.petInput && ctx.petInput.active)));
+    const active = (game && game.active) || overlayOn() || params.fps === 60 || (params.fps !== 30 && (now - hit.lastInput < 2500 || (ctx.stick && ctx.stick.state !== 'hidden') || (ctx.petInput && ctx.petInput.active)));
     if (!active && now - last < 1000 / 30 - 3) return;
     const dt = Math.max(0, (now - last) / 1000);
     last = now;

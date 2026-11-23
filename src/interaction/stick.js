@@ -176,7 +176,7 @@ export function createStick(ctx) {
 
   function click(worldPoint) {
     // 小游戏（遛狗 / 钓鱼）进行中不能拿出树枝：指针事件那边已经拦了，这里把接口本身也拦住
-    if (stick.state === 'hidden' && ((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active))) return;
+    if (stick.state === 'hidden' && ((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active) || (ctx.wardrobe && ctx.wardrobe.active))) return;
     if (stick.state === 'hidden' && ctx.travel && ctx.travel.blockPlay()) return; // 小狗乘白鹭出门了 / 正要走：给个提示，不拿树枝
     heldTime = 0; // 任何点击都刷新交互时间
     switch (stick.state) {
@@ -474,7 +474,7 @@ export function createStick(ctx) {
       const pi = ctx.petInput;
       const want = pi && (pi.over || pi.active) && stick.state === 'hidden' ? pi.cursor
         : stick.state === 'held' ? (mouse.down ? 'grabbing' : 'grab')
-        : stick.state === 'hidden' && shelf ? (shelf.hovered && shelf.hovered.id ? 'pointer' : 'default')
+        : stick.state === 'hidden' && shelf ? ((shelf.hovered && shelf.hovered.id) || (ctx.wardrobe && ctx.wardrobe.hover) ? 'pointer' : 'default') // 悬停在玩具架的物品 / 小屋正面（进衣帽间）上：手指
         : 'pointer';
       if (mouse.inside || cursorCache === '') setCursor(ctx.renderer.domElement, want);
     }
@@ -496,7 +496,7 @@ export function createStick(ctx) {
       ndc.set(((e.clientX - r.left) / w) * 2 - 1, -((e.clientY - r.top) / h) * 2 + 1);
     };
 
-    const gameOn = () => !!((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active)); // 小游戏（遛狗 / 钓鱼）进行中：岛上的指针交互全部暂停
+    const gameOn = () => !!((ctx.game && ctx.game.active) || (ctx.fishing && ctx.fishing.active) || (ctx.wardrobe && ctx.wardrobe.active)); // 小游戏（遛狗 / 钓鱼）/ 换装进行中：岛上的指针交互全部暂停
     el.addEventListener('pointerdown', (e) => {
       if (gameOn()) return;
       if (e.button !== undefined && e.button !== 0) return;

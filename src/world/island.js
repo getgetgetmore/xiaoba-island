@@ -5,7 +5,7 @@ import { paintMaterial, applyPaint } from '../core/paint.js';
 import { C } from './island/colors.js';
 import { L, RADIUS, outlineR, heightAt, kennelToWorld, LOOKOUT, lookoutSurface, lookoutLocal } from './island/shape.js';
 import { buildTopGeometry, buildBodyGeometry, buildBodyDecor, buildFloaters } from './island/terrain.js';
-import { buildKennel, LANTERN_LOCAL, SHELF, K as KENNEL_DIM } from './island/kennel.js';
+import { buildKennel, LANTERN_LOCAL, SHELF, K as KENNEL_DIM, WARDROBE_DOOR } from './island/kennel.js';
 import { buildProps } from './island/props.js';
 import { makeGrassField, buildGrass, buildFlowers, swayUniforms } from './island/plants.js';
 import { buildWater } from './island/water.js';
@@ -68,6 +68,23 @@ export function createIsland(ctx) {
   const kFood = new THREE.Mesh(kennel.food, matWood);
   kFood.castShadow = false; kFood.visible = false;
   kg.add(kMain, kGlow, kFood);
+  // 衣帽间的门（后墙内侧）：门扇绕合页转；门洞里一块发暖光的平面；地上一片跟着门缝变大的光。
+  const WD = WARDROBE_DOOR, wdZ = -KENNEL_DIM.D + KENNEL_DIM.T;
+  const kDoor = new THREE.Mesh(kennel.door, matWood);
+  kDoor.name = 'wardrobeDoor'; kDoor.castShadow = false; kDoor.receiveShadow = true;
+  kDoor.position.set(-WD.w / 2, WD.y0, wdZ + 0.045);
+  const portalMat = new THREE.MeshBasicMaterial({ color: 0xffe9b8, toneMapped: false });
+  const kPortal = new THREE.Mesh(kennel.portal, portalMat);
+  kPortal.name = 'wardrobePortal';
+  const spillMat = new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+  const spillGeo = new THREE.PlaneGeometry(1, 1); spillGeo.rotateX(-Math.PI / 2); spillGeo.translate(0, 0, 0.5); // 原点在门槛，朝屋里铺开
+  const kSpill = new THREE.Mesh(spillGeo, spillMat);
+  kSpill.position.set(0, 0.045, wdZ + 0.06); kSpill.scale.set(WD.w * 1.1, 1, 0.05); kSpill.visible = false;
+  kg.add(kDoor, kPortal, kSpill);
+  // 小屋正面的点击盒（前墙 + 拱门）：点它 = 进衣帽间
+  const kFrontHit = new THREE.Mesh(new THREE.BoxGeometry(1.84, 1.5, 0.3), new THREE.MeshBasicMaterial({ visible: false }));
+  kFrontHit.name = 'kennelFront'; kFrontHit.position.set(0, 0.75, KENNEL_DIM.D + 0.03);
+  kg.add(kFrontHit);
   // 狗碗：level 0..1 = 碗里还剩多少狗粮（0 = 空碗）
   const bowl = { level: 0, setLevel(v) { bowl.level = Math.min(1, Math.max(0, v)); kFood.visible = bowl.level > 0.04; kFood.position.y = -0.045 * (1 - bowl.level); } };
   kg.updateMatrixWorld(true);
@@ -125,6 +142,29 @@ export function createIsland(ctx) {
         if (hovered && hovered.onHover) hovered.onHover(true);
       },
       get hovered() { return hovered; },
+    };
+  })();
+  // 衣帽间入口：wardrobeDoor.setOpen(0..1) 开门；center / normal 给镜头用（门的中心、从门朝屋里也就是朝小屋正门的方向）
+  const wardrobeDoor = (() => {
+    let open = 0;
+    const q = new THREE.Quaternion().setFromEuler(kg.rotation);
+    const center = kg.localToWorld(new THREE.Vector3(0, WD.y0 + WD.h / 2, wdZ));
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    const frontCenter = kg.localToWorld(new THREE.Vector3(0, KENNEL_DIM.DOOR_H0, KENNEL_DIM.D)); // 拱门的中心（前墙外表面）
+    return {
+      center, normal, frontCenter,
+      width: WD.w * L.kennel.s, height: WD.h * L.kennel.s,
+      depth: (2 * KENNEL_DIM.D - KENNEL_DIM.T) * L.kennel.s, // 从后墙内表面到前墙外表面
+      get open() { return open; },
+      setOpen(v) {
+        open = Math.min(1, Math.max(0, v));
+        kDoor.rotation.y = -open * WD.swing; // 朝屋里打开
+        kSpill.visible = open > 0.01;
+        spillMat.opacity = 0.5 * open;
+        kSpill.scale.z = 0.05 + 1.5 * open;
+      },
+      /** 射线有没有点在小屋正面（前墙 / 拱门）上 */
+      pickFront(raycaster) { return raycaster.intersectObject(kFrontHit, false).length > 0; },
     };
   })();
   const lanternPos = new THREE.Vector3(...LANTERN_LOCAL);
@@ -427,6 +467,7 @@ export function createIsland(ctx) {
     obstacles,
     groundMeshes: [topMesh],
     shelf, // 狗窝外墙上的玩具架
+    wardrobeDoor, // 狗窝后墙内侧的衣帽间门（换装的入口）
     flowerHeads: flowers.heads, // [{x, z, top}] 每朵花的花头顶面（昆虫落脚点）
     anchors,
     bowl, // 狗碗里的狗粮（{ level, setLevel(0..1) }）
