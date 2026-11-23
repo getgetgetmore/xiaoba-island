@@ -1,5 +1,7 @@
 // 衣帽间里面的玩法：控制小狗走动、右键 360° 转视角、逛橱柜（分区陈列、常穿的排前面、左右滑动、悬停取出、点开展示面板、穿上 / 脱下）、
 // 照镜子、自拍、拍照区（换背景墙、摆固定姿势、保存照片）。
+// 橱柜、镜子、拍照区都是“走到位置就触发”：走到橱柜跟前 / 镜子前的小地垫 / 跳上拍照区的圆台，镜头和界面自动切过去；走开就回到自由走动。
+// 姿势不列按钮：一个“换个姿势”，或者直接点小狗，轮着换。
 // 房间本身（墙、橱柜架子、镜子、拍照区）在 room.js；服饰（目录、穿在身上、陈列模型）在 garments.js；怎么进出衣帽间在 wardrobe.js。
 //
 // createCloset(ctx, { room, ui, onExit }) → closet = {
@@ -55,7 +57,8 @@ export function createCloset(ctx, { room, ui, onExit }) {
   };
 
   // ------------------------------------------------------------------ 小狗
-  const D = { x: 0, y: 0, z: 0, heading: Math.PI, speed: 0, tx: null, tz: null, face: null, onArrive: null, stuckT: 0, idleT: 0, pose: null, poseT: 0, celebrate: 0 };
+  const D = { x: 0, y: 0, z: 0, heading: Math.PI, speed: 0, tx: null, tz: null, face: null, onArrive: null, stuckT: 0, idleT: 0, pose: null, poseT: 0, celebrate: 0, onStage: false, hop: 0, y0: 0 };
+  let latch = null; // 刚从哪个区退出来（人还站在里面）：走出去之前不再触发这个区
   const keys = new Set();
   const ext = { x: 0, y: 0, z: 0, heading: 0, speed: 0 };
   const camVec = new THREE.Vector3();
@@ -66,17 +69,33 @@ export function createCloset(ctx, { room, ui, onExit }) {
   }
   function stopWalk() { D.tx = null; D.tz = null; D.onArrive = null; }
   function setPose(id) { D.pose = POSES.find((p) => p.id === id) || null; D.poseT = 0; ui_sync(); }
+  /** 换个姿势：按固定顺序轮着来 */
+  function nextPose() { const i = D.pose ? POSES.indexOf(D.pose) : -1; setPose(POSES[(i + 1) % POSES.length].id); }
+  // ---- 三个区：走到位置就触发
+  const ZONE_R = { mirror: [0.6, 1.2], photo: [0.78, 1.08] }; // [进入半径, 离开半径]
+  const dist2 = (p) => Math.hypot(D.x - p.x, D.z - p.z);
+  function inCabinetStrip() { return D.z < room.cabinet.rows[0].z + 1.78 && D.x > room.cabinet.clip.x0 - 0.25 && D.x < room.cabinet.clip.x1 + 0.25; }
+  /** (x, z) 这个位置属于哪个区（没有则 null） */
+  function zoneOf(x, z) {
+    if (Math.hypot(x - room.photo.standSpot.x, z - room.photo.standSpot.z) < ZONE_R.photo[0]) return 'photo';
+    if (Math.hypot(x - room.mirror.standSpot.x, z - room.mirror.standSpot.z) < ZONE_R.mirror[0]) return 'mirror';
+    if (z < room.cabinet.rows[0].z + 1.78 && x > room.cabinet.clip.x0 - 0.25 && x < room.cabinet.clip.x1 + 0.25) return 'cabinet';
+    return null;
+  }
+  /** 小狗现在站在哪个区里 */
+  const zoneAt = () => zoneOf(D.x, D.z);
 
   /** 小狗这一帧往哪儿走（在 brain 里、小狗模型更新之前调用） */
   function drive(dt, mover) {
     if (!C.on) return;
     let mvx = 0, mvz = 0, want = 0;
-    if (C.mode === 'free') {
-      // 键盘：方向相对镜头（W = 往画面里走）
+    if (C.mode !== 'item') {
+      // 键盘：方向相对镜头（W = 往画面里走）。在橱柜 / 自拍模式里一动就是“走开”，回到自由走动
       const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
       const r = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
       if (f || r) {
-        stopWalk();
+        if (C.mode === 'cabinet' || C.mode === 'selfie') leaveZone();
+        stopWalk(); D.pose = null;
         const fx = -Math.sin(orbit.az), fz = -Math.cos(orbit.az), rx = Math.cos(orbit.az), rz = -Math.sin(orbit.az);
         mvx = fx * f + rx * r; mvz = fz * f + rz * r;
         const l = Math.hypot(mvx, mvz) || 1; mvx /= l; mvz /= l; want = WALK_SPEED;
@@ -104,9 +123,22 @@ export function createCloset(ctx, { room, ui, onExit }) {
       if (D.face !== null) { const e = wrap(D.face - D.heading); D.heading = wrap(D.heading + clamp(e, -TURN_RATE * dt, TURN_RATE * dt)); if (Math.abs(e) < 0.02) D.face = null; }
       D.idleT += dt;
     }
-    // 圆台（拍照区）比地面高一点
+    // 区：自由走动时走进哪个区就触发哪个；照镜子 / 拍照时走出去就退出；人站在区里但没站正，自己挪到位
+    if (C.mode === 'free') {
+      const z = zoneAt();
+      // 点地面走去别处、只是路过这个区：不触发（目的地就在这个区里，或者是用键盘走进来的，才触发）
+      const passing = z && D.tx !== null && zoneOf(D.tx, D.tz) !== z;
+      if (!z) latch = null; else if (z !== latch && !passing) enterZone(z);
+    } else if (C.mode === 'mirror' || C.mode === 'photo') {
+      const spot = room[C.mode].standSpot, d = dist2(spot);
+      if (d > ZONE_R[C.mode][1]) leaveZone();
+      else if (!want && D.tx === null && (d > 0.1 || Math.abs(wrap(room[C.mode].facing - D.heading)) > 0.08) && D.face === null) walkTo(spot.x, spot.z, room[C.mode].facing, () => { if (!D.pose) setPose('sit'); });
+    }
+    // 圆台（拍照区）比地面高一点：上去、下来都是跳一下
     const ps = room.photo.standSpot, onStage = Math.hypot(D.x - ps.x, D.z - ps.z) < 0.9;
-    D.y += ((onStage ? ps.y : 0) - D.y) * kOf(12, dt);
+    if (onStage !== D.onStage) { D.onStage = onStage; D.hop = 0.34; D.y0 = D.y; }
+    if (D.hop > 0) { D.hop = Math.max(0, D.hop - dt); const u = 1 - D.hop / 0.34; D.y = D.y0 + ((onStage ? ps.y : 0) - D.y0) * u + Math.sin(Math.PI * u) * 0.26; }
+    else D.y = onStage ? ps.y : 0;
     // 动作
     D.celebrate = Math.max(0, D.celebrate - dt);
     D.poseT += dt;
@@ -184,6 +216,7 @@ export function createCloset(ctx, { room, ui, onExit }) {
   const itemById = new Map(), hits = [];
   let hoverItem = null, selected = null, dragRow = null;
   const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+  const RAIL_H = 0.6; // 挂衣杆比“衣服”那一排的底部高出多少（room.js 里杆子在 y = 2.1，这一排 y = 1.5）
   function buildCabinet() {
     if (rows.length) return;
     for (const row of cab.rows) {
@@ -196,7 +229,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
         const hit = new THREE.Mesh(new THREE.BoxGeometry(cab.rows[0].pitch * 0.92, 0.62, 0.55), hitMat);
         hit.position.y = 0.3; holder.add(hit);
         north.group.add(holder);
-        const it = { g, holder, model, hit, lift: 0, show: 0, x: 0, R };
+        // 衣服是吊在挂衣杆下面的：按这件的高度往上提，让细绳的顶端正好够到杆子（杆子在这一排底部往上 RAIL_H 处）
+        const dy = row.zone === 'top' ? Math.max(0, RAIL_H - new THREE.Box3().setFromObject(model).max.y) : 0;
+        const it = { g, holder, model, hit, lift: 0, show: 0, x: 0, R, dy };
         hit.userData.item = it;
         R.items.push(it); itemById.set(g.id, it); hits.push(hit);
       }
@@ -213,7 +248,7 @@ export function createCloset(ctx, { room, ui, onExit }) {
     }
   }
   const maxScroll = (R) => Math.max(0, R.items.length - cab.visible);
-  const showcase = new THREE.Vector3();
+  const showcase = new THREE.Vector3(), SHOW_YAW = -0.38, SHOW_SCALE = 2.6; // 展示时：稍微侧过来一点、放大到 2.6 倍
   function updateCabinet(dt) {
     const t = performance.now() / 1000;
     for (const R of rows) {
@@ -224,16 +259,17 @@ export function createCloset(ctx, { room, ui, onExit }) {
         it.x = x;
         const inside = x > cab.clip.x0 + R.row.pitch * 0.3 && x < cab.clip.x1 - R.row.pitch * 0.3;
         const isSel = selected === it;
-        it.lift += ((hoverItem === it && !isSel ? 1 : 0) - it.lift) * kOf(12, dt);
-        it.show += ((isSel ? 1 : 0) - it.show) * kOf(7, dt);
+        it.lift += ((hoverItem === it || isSel ? 1 : 0) - it.lift) * kOf(12, dt); // 点开的那件保持“取出”的状态
+        it.show += ((isSel ? 1 : 0) - it.show) * kOf(3.4, dt);                        // 再从取出的位置逐渐放大到展示位置（约 1 秒）
         it.holder.visible = inside || it.show > 0.02;
         it.hit.visible = inside; // 看不见的不参与点选（hit 的材质本身不可见，这里只是让射线跳过它）
-        // 平时在格子里；鼠标移上去往上取出一截；点开以后飞到橱柜前面放大、慢慢转
-        const y = R.row.y + 0.22 * it.lift, z = R.row.z + 0.12 * it.lift;
+        // 平时在格子里；鼠标移上去往上取出一截；点开以后从取出的位置逐渐放大到橱柜前面（不转，稍微侧一点角度，像穿在小狗身上那样横着）
+        const y = R.row.y + it.dy + (it.dy > 0 ? 0.1 : 0.22) * it.lift, z = R.row.z + (it.dy > 0 ? 0.32 : 0.12) * it.lift; // 吊着的衣服上面就是杆子：取出时主要是往外拿
         showcase.set((cab.clip.x0 + cab.clip.x1) / 2, cab.lookAt.y - 0.15, R.row.z + 1.35);
-        it.holder.position.set(x + (showcase.x - x) * it.show, y + (showcase.y - y) * it.show, z + (showcase.z - z) * it.show);
-        it.holder.rotation.set(0, it.show > 0.02 ? t * 0.9 * it.show : Math.sin(t * 3) * 0.12 * it.lift, 0);
-        it.holder.scale.setScalar(1 + 0.1 * it.lift + 1.5 * it.show);
+        const e = it.show * it.show * (3 - 2 * it.show);
+        it.holder.position.set(x + (showcase.x - x) * e, y + (showcase.y - y) * e, z + (showcase.z - z) * e);
+        it.holder.rotation.set(0, Math.sin(t * 3) * 0.12 * it.lift * (1 - e) + SHOW_YAW * e, 0);
+        it.holder.scale.setScalar(1 + 0.1 * it.lift * (1 - e) + (SHOW_SCALE - 1) * e);
       });
     }
   }
@@ -320,12 +356,12 @@ export function createCloset(ctx, { room, ui, onExit }) {
   ui.append(title, backBtn, hint, bar, panel, overlay, flash);
 
   const HINTS = {
-    free: 'WASD 或点地面让它走 · 右键拖动转视角 · 滚轮缩放',
-    cabinet: '滚轮或按住拖动左右翻看 · 点一件看看',
+    free: 'WASD 或点地面走动 · 右键转视角 · 走到橱柜前、镜子前、圆台上试试',
+    cabinet: '滚轮或按住拖动左右翻看 · 点一件看看 · 走开就离开橱柜',
     item: '◀ ▶ 看上一件 / 下一件',
-    mirror: '照照镜子，摆个姿势',
-    selfie: '看镜头——咔嚓！',
-    photo: '换个背景，摆个姿势，咔嚓！',
+    mirror: '照照镜子——点小狗换个姿势，走开就离开',
+    selfie: '看镜头——点小狗换个姿势，咔嚓！',
+    photo: '换个背景，点小狗换个姿势，咔嚓！走下圆台就离开',
   };
   let lastUi = '';
   function ui_sync() {
@@ -338,19 +374,19 @@ export function createCloset(ctx, { room, ui, onExit }) {
     panel.style.display = C.mode === 'item' ? 'flex' : 'none';
     bar.style.display = C.mode === 'item' ? 'none' : 'flex';
     bar.textContent = '';
-    const poseBtns = () => POSES.map((p) => mkBtn(p.name, () => setPose(p.id), D.pose && D.pose.id === p.id ? { background: '#f3c98b' } : null));
+    const poseBtn = () => mkBtn('🐾 换个姿势' + (D.pose ? '（' + D.pose.name + '）' : ''), () => nextPose());
     const shoot = () => mkBtn('📷 咔嚓', () => snap(), { background: '#c9783a', color: '#fff8e8' });
-    if (C.mode === 'free') bar.append(mkBtn('👕 橱柜', () => setMode('cabinet')), mkBtn('🪞 照镜子', () => setMode('mirror')), mkBtn('📸 拍照区', () => setMode('photo')), mkBtn('🤳 自拍', () => setMode('selfie')));
+    if (C.mode === 'free') bar.append(mkBtn('🤳 自拍', () => setMode('selfie')));
     else if (C.mode === 'cabinet') bar.append(...ZONES.filter((z) => dog.outfit && dog.outfit[z]).map((z) => mkBtn('脱下' + ZONE_NAMES[z], () => takeOff(z))));
-    else if (C.mode === 'mirror') bar.append(...poseBtns(), mkBtn('转个圈', () => { D.celebrate = 1.2; }));
-    else if (C.mode === 'selfie') bar.append(...poseBtns().slice(0, 3), shoot());
+    else if (C.mode === 'mirror') bar.append(poseBtn());
+    else if (C.mode === 'selfie') bar.append(poseBtn(), shoot());
     else if (C.mode === 'photo') {
       const bd = room.photo.backdrops, n = bd.length, i = room.photo.index;
       const setBd = (k) => { room.photo.setBackdrop((k + n) % n); store.backdrop = room.photo.index; saveWardrobe(store); ui_sync(); };
       const name = mkDiv({ ...pill, padding: '6px 12px', background: 'rgba(74,42,20,0.82)', color: '#fff8e8', minWidth: '64px', textAlign: 'center' }, bd[i] ? bd[i].name : '');
       const line = mkDiv({ display: 'flex', gap: '6px', flexBasis: '100%', justifyContent: 'center' });
-      line.append(mkBtn('◀', () => setBd(i - 1)), name, mkBtn('▶', () => setBd(i + 1)), shoot());
-      bar.append(line, ...poseBtns());
+      line.append(mkBtn('◀', () => setBd(i - 1)), name, mkBtn('▶', () => setBd(i + 1)));
+      bar.append(line, poseBtn(), shoot());
     }
     if (C.mode === 'item' && selected) {
       const g = selected.g;
@@ -392,9 +428,15 @@ export function createCloset(ctx, { room, ui, onExit }) {
   }
 
   // ------------------------------------------------------------------ 模式
+  /** 走进了某个区：切到对应的模式 */
+  function enterZone(z) { latch = null; setMode(z); }
+  /** 离开当前的区，回到自由走动（人要是还站在区里，走出去之前不再触发） */
+  function leaveZone() { if (C.mode === 'free') return; setMode('free'); latch = zoneAt(); }
+
   function setMode(m) {
     if (!C.on || m === C.mode) return;
-    selected = null; hoverItem = null; D.pose = null; keys.clear();
+    selected = null; hoverItem = null; D.pose = null;
+    if (m !== 'free' && m !== 'mirror' && m !== 'photo') keys.clear(); // 走进镜子 / 圆台时手还按着方向键：让它接着走
     C.mode = m;
     if (m === 'cabinet') {
       sortRows(); // 每次打开橱柜按“常穿”重排一次（逛的过程中不重排，免得衣服在眼前换位置）
@@ -402,18 +444,18 @@ export function createCloset(ctx, { room, ui, onExit }) {
       const z = cab.rows[0].z + 1.55;
       walkTo(Math.min(room.walk.x1, cab.clip.x1 + 0.75), z, Math.atan2(cab.viewSpot.x - (cab.clip.x1 + 0.75), cab.viewSpot.z - z), () => { if (C.mode === 'cabinet' || C.mode === 'item') D.pose = POSES[1]; });
     } else if (m === 'mirror') {
-      walkTo(room.mirror.standSpot.x, room.mirror.standSpot.z, room.mirror.facing, () => { if (C.mode === 'mirror' && !D.pose) setPose('sit'); });
+      if (!keys.size) walkTo(room.mirror.standSpot.x, room.mirror.standSpot.z, room.mirror.facing, () => { if (C.mode === 'mirror' && !D.pose) setPose('sit'); });
     } else if (m === 'photo') {
-      walkTo(room.photo.standSpot.x, room.photo.standSpot.z, room.photo.facing, () => { if (C.mode === 'photo' && !D.pose) setPose('sit'); });
+      if (!keys.size) walkTo(room.photo.standSpot.x, room.photo.standSpot.z, room.photo.facing, () => { if (C.mode === 'photo' && !D.pose) setPose('sit'); });
     } else if (m === 'selfie') {
       stopWalk(); D.pose = POSES[2]; // 自拍：就地坐下眯眼笑
-    } else stopWalk();
+    } // 回到自由走动：不打断正在走的路（走出镜子 / 圆台的范围时会到这儿，它要接着走到点的地方）
     ui_sync();
   }
   function back() {
     if (!C.on) return false;
     if (C.mode === 'item') { selected = null; C.mode = 'cabinet'; ui_sync(); return true; }
-    if (C.mode !== 'free') { setMode('free'); return true; }
+    if (C.mode !== 'free') { stopWalk(); leaveZone(); return true; } // 按返回 / Esc 离开：小狗原地不动
     return false;
   }
 
@@ -437,7 +479,7 @@ export function createCloset(ctx, { room, ui, onExit }) {
     buildCabinet(); sortRows();
     C.on = true; C.mode = 'free'; selected = null; hoverItem = null; lastUi = '';
     const s = room.dogSpot.position;
-    D.x = s.x; D.y = 0; D.z = s.z; D.heading = Math.PI; D.speed = 0; D.pose = null; D.idleT = 0; D.celebrate = 0; stopWalk();
+    D.x = s.x; D.y = 0; D.z = s.z; D.heading = Math.PI; D.speed = 0; D.pose = null; D.idleT = 0; D.celebrate = 0; D.onStage = false; D.hop = 0; latch = null; stopWalk();
     orbit.az = orbit.azT = 0; orbit.pitch = orbit.pitchT = 0.5; orbit.dist = orbit.distT = 13; camSnap = true;
     if (room.photo.backdrops.length) room.photo.setBackdrop(clamp(store.backdrop | 0, 0, room.photo.backdrops.length - 1));
     room.scene.add(dog.group);
@@ -501,7 +543,13 @@ export function createCloset(ctx, { room, ui, onExit }) {
     if (moved > 6 || !e) return;
     if (C.mode === 'cabinet') { const it = pickItem(e); if (it) select(it.g.id); return; }
     if (C.mode === 'item') { const it = pickItem(e); if (it && it !== selected) select(it.g.id); return; }
-    if (C.mode === 'free') { setRay(e); if (ray.ray.intersectPlane(floor, hitP)) walkTo(hitP.x, hitP.z); }
+    setRay(e);
+    // 点小狗：换个姿势（照镜子 / 自拍 / 拍照时）
+    if (C.mode === 'mirror' || C.mode === 'selfie' || C.mode === 'photo') {
+      tmp.set(D.x, D.y + 0.6, D.z);
+      if (ray.ray.distanceToPoint(tmp) < 0.62) { nextPose(); return; }
+    }
+    if (C.mode === 'free' || C.mode === 'mirror' || C.mode === 'photo') { if (ray.ray.intersectPlane(floor, hitP)) { D.pose = null; walkTo(hitP.x, hitP.z); } }
   };
   canvas.addEventListener('pointerup', endDown);
   canvas.addEventListener('pointercancel', () => endDown(null));
@@ -517,14 +565,14 @@ export function createCloset(ctx, { room, ui, onExit }) {
   document.addEventListener('keydown', (e) => {
     if (!C.on) return;
     if (C.mode === 'item' && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) { e.preventDefault(); step(e.code === 'ArrowLeft' ? -1 : 1); return; }
-    if (/^(Key[WASD]|Arrow(Up|Down|Left|Right))$/.test(e.code)) { if (C.mode === 'free') { e.preventDefault(); keys.add(e.code); } }
+    if (/^(Key[WASD]|Arrow(Up|Down|Left|Right))$/.test(e.code)) { if (C.mode !== 'item') { e.preventDefault(); keys.add(e.code); } }
   });
   document.addEventListener('keyup', (e) => { keys.delete(e.code); });
   window.addEventListener('blur', () => { keys.clear(); rot = null; down = null; });
 
   function info() {
     return {
-      on: C.on, mode: C.mode, dog: { x: +D.x.toFixed(2), y: +D.y.toFixed(2), z: +D.z.toFixed(2), heading: +D.heading.toFixed(2), speed: +D.speed.toFixed(2), pose: D.pose ? D.pose.id : null, walking: D.tx !== null },
+      on: C.on, mode: C.mode, dog: { x: +D.x.toFixed(2), y: +D.y.toFixed(2), z: +D.z.toFixed(2), heading: +D.heading.toFixed(2), speed: +D.speed.toFixed(2), pose: D.pose ? D.pose.id : null, walking: D.tx !== null, hop: D.hop > 0 }, zone: zoneAt(), latch,
       orbit: { az: +orbit.az.toFixed(2), pitch: +orbit.pitch.toFixed(2), dist: +orbit.dist.toFixed(2) },
       cam: camPos.toArray().map((v) => +v.toFixed(2)),
       walls: Object.fromEntries(room.walls.map((w) => [w.name, w.group.visible])),
@@ -537,6 +585,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
   }
   C.itemScreen = (id) => { const it = itemById.get(id); if (!it) return null; const p = project(it.holder.position.x, it.holder.position.y + 0.3, it.holder.position.z + 0.2); const r = canvas.getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; };
   C.floorScreen = (x, z) => { const p = project(x, 0, z); const r = canvas.getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; };
+  C.dogScreen = () => { const p = project(D.x, D.y + 0.6, D.z); const r = canvas.getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; };
+  C.nextPose = nextPose; C.zoneAt = zoneAt;
+  C.showInfo = (id) => { const it = itemById.get(id); return it ? { scale: +it.holder.scale.x.toFixed(3), yaw: +it.holder.rotation.y.toFixed(3), show: +it.show.toFixed(3), lift: +it.lift.toFixed(3) } : null; };
   C.orbit = orbit;
   return C;
 }

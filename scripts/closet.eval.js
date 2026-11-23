@@ -23,7 +23,7 @@ step(1);
 W.open();
 step(8, () => W.phase === 'room'); step(0.6);
 const C = W.closet, R = W.room;
-ck('进了衣帽间：自由走动模式，底下有 橱柜 / 照镜子 / 拍照区 / 自拍 四个按钮', W.phase === 'room' && C.mode === 'free' && ['橱柜', '照镜子', '拍照区', '自拍'].every((t) => !!btn(t)), C.info().bar);
+ck('进了衣帽间：自由走动模式，底下只有“自拍”一个按钮（橱柜 / 镜子 / 拍照区都是走过去触发）', W.phase === 'room' && C.mode === 'free' && !!btn('自拍') && C.info().bar.length === 1, C.info().bar);
 if (stopAt === 'free') return done();
 
 // ---- 走动：键盘
@@ -40,13 +40,15 @@ ck('点一下地面：小狗走过去', arrived, C.info().dog);
 // ---- 碰撞：往橱柜里走、往墙外走，都不会穿进家具 / 出界
 let minClear = 1e9, outside = 0;
 for (const [x, z] of [[0, -R.size.d], [R.size.w, 0], [-R.size.w, 0.4], [R.mirror.standSpot.x - 2, R.mirror.standSpot.z], [0, R.size.d]]) {
+  if (C.mode !== 'free') { key('keydown', 'Escape'); step(0.1); }
   C.walkTo(x, z);
   step(5, () => { const d = C.info().dog; for (const o of R.obstacles) minClear = Math.min(minClear, Math.hypot(d.x - o.x, d.z - o.z) - o.r); if (d.x < R.walk.x0 - 1e-3 || d.x > R.walk.x1 + 1e-3 || d.z < R.walk.z0 - 1e-3 || d.z > R.walk.z1 + 1e-3) outside++; return !C.info().dog.walking; });
 }
 ck('走到哪儿都不穿家具、不出可走范围', minClear > 0.3 && outside === 0, { minClear: f(minClear), outside });
 
 // ---- 右键拖动 360° 转视角；转到墙背后时那面墙藏起来
-C.walkTo(0, 0.5); step(4, () => !C.info().dog.walking);
+if (C.mode !== 'free') { key('keydown', 'Escape'); step(0.1); }
+C.walkTo(0, 0.5); step(5, () => !C.info().dog.walking && C.mode === 'free'); step(0.5);
 const az0 = C.info().orbit.az;
 ptr('pointerdown', 400, 300, { button: 2, buttons: 2 }); ptr('pointermove', 400 - 349, 300, { button: 2, buttons: 2 }); ptr('pointerup', 400 - 349, 300, { button: 2, buttons: 0 });
 step(1.2);
@@ -61,10 +63,14 @@ ck('滚轮拉近', C.info().orbit.dist < d0 - 1, { d0, d1: C.info().orbit.dist }
 C.orbit.azT = 0; step(1.5);
 
 // ---- 橱柜
-btn('橱柜').click(); step(4.5);
+// 路过不触发：点地面去房间另一头，途中经过哪个区都不触发
+C.walkTo(R.walk.x0 + 0.6, 2.4); step(5, () => !C.info().dog.walking);
+ck('点地面走去别处：一路没有触发任何区', C.mode === 'free', C.mode);
+C.walkTo(0, R.walk.z0);
+const cabOn = step(6, () => C.mode === 'cabinet'); step(4.5);
 const ci = C.info();
 const zones = ci.rows.map((r) => r.zone);
-ck('点“橱柜”：四排分区（帽子 / 衣服 / 装饰品 / 鞋子），每排可视范围里摆着前几件，相机到橱柜正面', ci.mode === 'cabinet' && ['hat', 'top', 'acc', 'shoes'].every((z) => zones.includes(z)) && ci.rows.every((r) => r.shown.length === Math.min(R.cabinet.visible, r.order.length) && r.shown.every((id, k) => id === r.order[k])) && Math.hypot(ci.cam[0] - R.cabinet.viewSpot.x, ci.cam[2] - R.cabinet.viewSpot.z) < 0.4, ci.rows.map((r) => r.zone + ':' + r.shown.length + '/' + r.order.length));
+ck('走到橱柜跟前：自动切到橱柜——四排分区（帽子 / 衣服 / 装饰品 / 鞋子），每排可视范围里摆着前几件，相机到橱柜正面，小狗走到一旁', cabOn && ci.mode === 'cabinet' && ci.dog.x > R.cabinet.clip.x1 && ['hat', 'top', 'acc', 'shoes'].every((z) => zones.includes(z)) && ci.rows.every((r) => r.shown.length === Math.min(R.cabinet.visible, r.order.length) && r.shown.every((id, k) => id === r.order[k])) && Math.hypot(ci.cam[0] - R.cabinet.viewSpot.x, ci.cam[2] - R.cabinet.viewSpot.z) < 0.4, ci.rows.map((r) => r.zone + ':' + r.shown.length + '/' + r.order.length));
 if (stopAt === 'cabinet') return done();
 const hatRow = ci.rows.find((r) => r.zone === 'hat'), firstHat = hatRow.order[0], secondHat = hatRow.order[1];
 // 悬停：向上取出
@@ -82,9 +88,15 @@ const hp2 = C.itemScreen(sc.shown[0]);
 ptr('pointermove', hp2.x, hp2.y, { buttons: 0 }); ptr('pointerdown', hp2.x, hp2.y); ptr('pointermove', hp2.x + 400, hp2.y); ptr('pointerup', hp2.x + 400, hp2.y, { buttons: 0 }); step(0.8);
 ck('按住往右拖：这一排滑回去；拖动不算点击（没有打开展示面板）', C.info().rows.find((r) => r.zone === 'hat').scroll < 0.05 && C.info().mode === 'cabinet', { scroll: C.info().rows.find((r) => r.zone === 'hat').scroll, mode: C.info().mode });
 // 点开：展示面板
-clickAt(C.itemScreen(firstHat)); step(0.9);
+clickAt(C.itemScreen(firstHat)); step(0.25);
+const shEarly = C.showInfo(firstHat);
 const pi = C.info();
-ck('点一件：出现展示面板（分区、名字、“穿上”），这件飞到前面放大', pi.mode === 'item' && pi.selected === firstHat && pi.panel && pi.panel.wear === '穿上' && pi.panel.zone === '帽子' && pi.panel.name.length > 0, pi.panel);
+ck('点一件：出现展示面板（分区、名字、“穿上”）', pi.mode === 'item' && pi.selected === firstHat && pi.panel && pi.panel.wear === '穿上' && pi.panel.zone === '帽子' && pi.panel.name.length > 0, pi.panel);
+{
+  // 展示：从取出的位置逐渐放大（中途是中间大小），放大以后不旋转
+  const sh = shEarly; step(1.8); const sh2 = C.showInfo(firstHat); step(1.0); const sh3 = C.showInfo(firstHat);
+  ck('展示时从取出的位置逐渐放大到面板上方，放大以后朝向固定不旋转', sh.scale > 1.05 && sh.scale < sh2.scale - 0.2 && sh2.scale > 2.4 && Math.abs(sh3.yaw - sh2.yaw) < 0.01 && Math.abs(sh3.scale - 2.6) < 0.05, { early: sh, mid: sh2, late: sh3 });
+}
 if (stopAt === 'item') return done();
 btn('▶').click(); step(0.5);
 ck('面板上点 ▶：直接看同一分区的下一件', C.info().selected === secondHat && C.info().panel.zone === '帽子', C.info().selected);
@@ -111,20 +123,33 @@ C.wear(third); C.wear(firstHat); C.wear(third); C.wear(secondHat); C.wear(third)
 key('keydown', 'Escape'); step(0.3);
 ck('Esc：从展示面板退回橱柜，再按退回自由走动', C.info().mode === 'cabinet');
 key('keydown', 'Escape'); step(0.5);
-C.setMode('cabinet'); step(0.2);
+C.walkTo(0, 0.5); step(4, () => !C.info().dog.walking);
+C.walkTo(0, R.walk.z0); step(6, () => C.mode === 'cabinet'); step(0.3);
 const order2 = C.info().rows.find((r) => r.zone === 'hat').order;
 ck('常穿的排在前面：按穿的次数从多到少排', C.info().mode === 'cabinet' && order2[0] === third && order2[1] === firstHat && order2[2] === secondHat, { order: order2, counts: C.info().counts });
 key('keydown', 'Escape'); step(0.5);
 
 // ---- 照镜子
-btn('照镜子').click();
+C.walkTo(0, 0.5); step(5, () => !C.info().dog.walking && C.mode === 'free');
+C.walkTo(R.mirror.standSpot.x + 0.25, R.mirror.standSpot.z + 0.2);
 const atMirror = step(8, () => { const d = C.info().dog; return Math.hypot(d.x - R.mirror.standSpot.x, d.z - R.mirror.standSpot.z) < 0.2 && !d.walking; }); step(3);
 const mi = C.info();
-ck('点“照镜子”：小狗走到镜子前、面朝镜子坐下，相机到看镜子的机位', atMirror && mi.mode === 'mirror' && Math.abs(Math.atan2(Math.sin(mi.dog.heading - R.mirror.facing), Math.cos(mi.dog.heading - R.mirror.facing))) < 0.1 && D.action === 'sit' && Math.hypot(mi.cam[0] - R.mirror.viewSpot.x, mi.cam[2] - R.mirror.viewSpot.z) < 0.5, mi.dog);
+ck('走到镜子前的小地垫上：自动进入照镜子——小狗站正、面朝镜子坐下，相机到看镜子的机位', atMirror && mi.mode === 'mirror' && Math.abs(Math.atan2(Math.sin(mi.dog.heading - R.mirror.facing), Math.cos(mi.dog.heading - R.mirror.facing))) < 0.1 && D.action === 'sit' && Math.hypot(mi.cam[0] - R.mirror.viewSpot.x, mi.cam[2] - R.mirror.viewSpot.z) < 0.5, mi.dog);
 if (stopAt === 'mirror') return done();
-btn('站好').click(); step(0.6);
-ck('照镜子时可以换姿势', D.action === 'idle' && C.info().dog.pose === 'stand', D.action);
-key('keydown', 'Escape'); step(0.5);
+const p0 = C.info().dog.pose;
+btn('换个姿势').click(); step(0.5);
+const p1 = C.info().dog.pose;
+clickAt(C.dogScreen()); step(0.5);
+const p2 = C.info().dog.pose;
+ck('只有一个“换个姿势”按钮；点按钮、点小狗都会换到下一个姿势', C.info().bar.length === 1 && p0 === 'sit' && p1 === 'smile' && p2 === 'lie' && D.action === 'lie', { p0, p1, p2, bar: C.info().bar });
+key('keydown', 'Escape'); step(0.6);
+const stay = C.mode === 'free' && C.info().latch === 'mirror'; step(1.0);
+ck('按 Esc 离开照镜子：人还站在地垫上也不会马上又触发', stay && C.mode === 'free', { mode: C.mode, latch: C.info().latch });
+key('keydown', 'KeyD'); step(1.4); key('keyup', 'KeyD'); step(0.4);
+C.walkTo(R.mirror.standSpot.x, R.mirror.standSpot.z); const again = step(6, () => C.mode === 'mirror');
+ck('走开再走回来：又能照镜子；用键盘走开就自动退出', again, C.mode);
+key('keydown', 'KeyD'); step(1.6); key('keyup', 'KeyD'); step(0.4);
+ck('照镜子时用键盘走开：自动回到自由走动', C.mode === 'free', C.mode);
 
 // ---- 自拍
 btn('自拍').click(); step(2.5);
@@ -136,27 +161,31 @@ ck('点“咔嚓”：存下一张照片（画面数据不为空）', downloads 
 key('keydown', 'Escape'); step(0.5);
 
 // ---- 拍照区
-btn('拍照区').click();
-const atPhoto = step(9, () => { const d = C.info().dog; return Math.hypot(d.x - R.photo.standSpot.x, d.z - R.photo.standSpot.z) < 0.2 && !d.walking; }); step(3);
+C.walkTo(0, 0.5); step(5, () => !C.info().dog.walking && C.mode === 'free');
+let maxY = 0;
+C.walkTo(R.photo.standSpot.x - 0.2, R.photo.standSpot.z + 0.15);
+const atPhoto = step(9, () => { maxY = Math.max(maxY, C.info().dog.y); const d = C.info().dog; return Math.hypot(d.x - R.photo.standSpot.x, d.z - R.photo.standSpot.z) < 0.2 && !d.walking; }); step(3);
 const ph = C.info();
-ck('点“拍照区”：小狗走上圆台、面朝房间，相机到正对背景墙的机位', atPhoto && ph.mode === 'photo' && Math.abs(ph.dog.y - R.photo.standSpot.y) < 0.02 && Math.hypot(ph.cam[0] - R.photo.viewSpot.x, ph.cam[2] - R.photo.viewSpot.z) < 0.5, ph.dog);
+ck('走到圆台：小狗跳上去（有一个起跳的弧线），自动进入拍照——面朝房间坐好，相机到正对背景墙的机位', atPhoto && maxY > R.photo.standSpot.y + 0.12 && ph.mode === 'photo' && Math.abs(ph.dog.y - R.photo.standSpot.y) < 0.02 && Math.hypot(ph.cam[0] - R.photo.viewSpot.x, ph.cam[2] - R.photo.viewSpot.z) < 0.5, ph.dog);
 const bd0 = ph.backdrop;
 btn('▶').click(); step(0.3);
 ck('点 ▶：换一面背景墙（存了档）', C.info().backdrop === (bd0 + 1) % R.photo.backdrops.length && JSON.parse(localStorage.getItem('shiba.wardrobe.v1')).backdrop === C.info().backdrop, { from: bd0, to: C.info().backdrop, n: R.photo.backdrops.length });
-const poses = {};
-for (const name of ['站好', '坐好', '眯眼笑', '趴下', '撅屁股', '露肚皮']) { btn(name).click(); step(0.5); poses[name] = D.action; }
-ck('六个固定拍照姿势都能摆', poses['站好'] === 'idle' && poses['坐好'] === 'sit' && poses['趴下'] === 'lie' && poses['撅屁股'] === 'playbow' && poses['露肚皮'] === 'roll', poses);
+const poses = [];
+for (let k = 0; k < 6; k++) { if (k % 2) clickAt(C.dogScreen()); else btn('换个姿势').click(); step(0.5); poses.push(C.info().dog.pose + ':' + D.action); }
+ck('“换个姿势” / 点小狗：六个固定姿势轮着来', new Set(poses).size === 6 && ['idle', 'sit', 'lie', 'playbow', 'roll'].every((a) => poses.some((p) => p.endsWith(':' + a))), poses);
 if (stopAt === 'photo') {
-  if (q.get('bd')) R.photo.setBackdrop(+q.get('bd')); btn(q.get('pose') || '坐好').click(); step(1.2);
+  if (q.get('bd')) R.photo.setBackdrop(+q.get('bd')); for (let k = 0; k < (+q.get('pose') || 0); k++) { btn('换个姿势').click(); step(0.4); } step(1.0);
   // 前面自拍“咔嚓”的白色闪光靠定时器淡出，脚本同步跑完之前定时器不会触发：截图前手动清掉
   for (const d of document.querySelectorAll('.pet-wardrobe div')) if (d.style.background === 'rgb(255, 255, 255)') { d.style.transition = 'none'; d.style.opacity = '0'; }
   return done();
 }
 btn('咔嚓').click(); step(0.2);
 ck('拍照区也能“咔嚓”存照片', downloads === 2);
+// 走下圆台：自动离开拍照
+C.walkTo(0, 0.5); const offOk = step(6, () => !C.info().dog.walking); step(0.6);
+ck('走下圆台：自动回到自由走动，并且接着走到点的地方（不会一出圆台就停住）', offOk && C.mode === 'free' && C.info().dog.y === 0 && Math.hypot(C.info().dog.x, C.info().dog.z - 0.5) < 0.2, { mode: C.mode, dog: C.info().dog });
 
 // ---- 退出：衣服还穿着；小岛复原
-key('keydown', 'Escape'); step(0.5);
 const outfitIn = { ...D.outfit };
 key('keydown', 'Escape');
 const leftOk = step(6, () => !W.active); step(2);

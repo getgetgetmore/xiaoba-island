@@ -1148,18 +1148,37 @@ export function createWornGarment(id, rig) {
 }
 
 // ---------------------------------------------------------------- 陈列模型
-/** 木衣架（陈列空间：挂钩朝上，横杆沿 X） */
-function hangerGeo(width, y) {
-  const half = width / 2;
-  const bar = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-half, y - 0.035, 0), new THREE.Vector3(-half * 0.5, y - 0.012, 0), new THREE.Vector3(0, y, 0),
-    new THREE.Vector3(half * 0.5, y - 0.012, 0), new THREE.Vector3(half, y - 0.035, 0),
-  ]), 10, 0.012, 6, false);
-  const hook = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, y, 0), new THREE.Vector3(0, y + 0.05, 0), new THREE.Vector3(0.004, y + 0.085, 0),
-    new THREE.Vector3(0.03, y + 0.105, 0), new THREE.Vector3(0.05, y + 0.09, 0), new THREE.Vector3(0.048, y + 0.072, 0),
-  ]), 10, 0.0045, 5, false);
-  return { bar: noUV(bar), hook: noUV(hook) };
+// 朝向约定：都按“穿 / 戴在站立小狗身上”的朝向摆。
+//   衣服、小背包：身体长轴沿 X，领口（小狗前方）朝 +X，背朝 +Y，从 +Z 看是侧面（小狗的右侧）；
+//                 衣服背上两个小木夹 + 两根细绳吊着（绳顶 = 模型最高处，便于挂在杆子下）。
+//   帽子：帽口朝下、帽檐正前方朝 +Z；墨镜、蝴蝶结：正面朝 +Z；
+//   围巾 / 领结 / 花环：按戴在脖子上的倾角，小狗前方朝 +Z 再往 +X 偏 0.6（从侧前方看最好认）；
+//   鞋袜：鞋底朝下、鞋尖朝 +Z，四只排一排。
+const SIDE_VIEW = new THREE.Matrix4().makeRotationY(Math.PI / 2); // 身体 +Z（前）→ +X
+
+/** 两个小木夹 + 两根细绳，把横放的衣服从背上吊起来 */
+function addClips(H, geo) {
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const P = geo.attributes.position;
+  const len = bb.max.x - bb.min.x, cx = (bb.min.x + bb.max.x) / 2;
+  const topY = bb.max.y + 0.045;
+  for (const k of [-0.27, 0.27]) {
+    const x = cx + k * len;
+    // 这一处背的最高点（z 靠中线）
+    let y = -1e9, z = 0;
+    for (let i = 0; i < P.count; i++) {
+      if (Math.abs(P.getX(i) - x) < 0.02 && Math.abs(P.getZ(i)) < 0.04 && P.getY(i) > y) { y = P.getY(i); z = P.getZ(i); }
+    }
+    if (y < -1e8) continue;
+    const clip = noUV(new THREE.BoxGeometry(0.012, 0.026, 0.016, 1, 1, 1));
+    addPiece(H, clip, { matrix: TR(x, y + 0.006, z), color: (p, o) => paint(o, p.y < -0.002 ? K.woodDark : K.wood), skin: { bone: 0 } });
+    const spring = noUV(new THREE.TorusGeometry(0.005, 0.0016, 4, 8));
+    addPiece(H, spring, { matrix: mul(TR(x, y + 0.008, z), ROT(0, Math.PI / 2, 0)), color: [K.metal], skin: { bone: 0 } });
+    const h = topY - (y + 0.019);
+    const cord = noUV(new THREE.CylinderGeometry(0.0018, 0.0018, h, 4, 1));
+    addPiece(H, cord, { matrix: TR(x, y + 0.019 + h / 2, z), color: [K.cream], skin: { bone: 0 } });
+  }
 }
 
 function buildDisplay(id) {
@@ -1172,9 +1191,7 @@ function buildDisplay(id) {
   const v = new THREE.Vector3(), n = new THREE.Vector3(), m3 = new THREE.Matrix3();
   // 每个顶点按 tag 选陈列变换（静止网格空间 → 陈列空间）
   if (g.zone === 'top' || id === 'acc_backpack') {
-    // 挂着：脖子朝上，后背朝 +Z（背包：正面朝 +Z、立着）
-    const hang = new THREE.Matrix4().set(-1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
-    mats[0] = hang.multiply(R.inv[R.B.body]);
+    mats[0] = SIDE_VIEW.clone().multiply(R.inv[R.B.body]);
   } else if (g.zone === 'shoes') {
     // 四只排成一排：左右成对，前脚一对在前排、后脚一对在后排稍错开
     const place = [[0.07, 0.06], [-0.07, 0.06], [0.07, -0.08], [-0.07, -0.08]];
@@ -1191,8 +1208,8 @@ function buildDisplay(id) {
   } else if (id === 'acc_sunglasses') {
     mats[0] = R.inv[R.B.head].clone();
   } else {
-    // 颈部饰品：圆环放平
-    mats[0] = mul(TR(0, 0.02, 0.01), ROT(0.38, 0, 0)).invert().multiply(R.inv[R.B.neck]);
+    // 颈部饰品：保持戴在脖子上的倾角，侧前方朝 +Z
+    mats[0] = new THREE.Matrix4().makeRotationY(0.6).multiply(R.inv[R.B.neck]);
   }
   for (let i = 0; i < N; i++) {
     const M = mats[W.tag[i]] || mats[0];
@@ -1211,13 +1228,8 @@ function buildDisplay(id) {
   geo.setIndex(W.idx.slice());
   let out = geo;
   if (g.zone === 'top') {
-    geo.computeBoundingBox();
-    const bb = geo.boundingBox;
-    const width = (bb.max.x - bb.min.x) * 0.9;
-    const { bar, hook } = hangerGeo(width, bb.max.y - 0.045);
     const H = new Build();
-    addPiece(H, bar, { matrix: TR(0, 0, (bb.max.z + bb.min.z) / 2 - 0.01), color: (p, o) => paint(o, K.wood, K.woodDark, p.x / 0.03), skin: { bone: 0 } });
-    addPiece(H, hook, { matrix: TR(0, 0, (bb.max.z + bb.min.z) / 2 - 0.01), color: [K.metal], skin: { bone: 0 } });
+    addClips(H, geo);
     out = mergeGeos([geo, H.geometry(false)]);
   }
   // 归一化：最长边 0.5，原点在底部中心
