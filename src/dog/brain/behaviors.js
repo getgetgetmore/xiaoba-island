@@ -344,27 +344,39 @@ export function createBehaviors(S) {
 
   // ---------------------------------------------------------------- 午后打盹
   const nap = (() => {
-    const st = { phase: 0, t: 0, travelT: 0, dur: 0, total: 0, nextStir: 0, stirT: 0, inWin: false };
+    // 在哪儿睡：垫子在外面 → 睡垫子上（那是 matBehaviors 的 sunbathe 在管，这里的权重让成 0）；
+    // 垫子在窝里（或者没有垫子）→ 窝门口或者树下（anchors.napSpots），两处随机，不连着挑同一处。
+    const st = { phase: 0, t: 0, travelT: 0, dur: 0, total: 0, nextStir: 0, stirT: 0, inWin: false, spot: null, last: -1 };
     const inWindow = () => S.env.hour >= 12 && S.env.hour < 15;
+    const spots = A.napSpots && A.napSpots.length ? A.napSpots : [{ name: 'spot', x: A.napSpot.x, z: A.napSpot.z, facing: NaN }];
+    const matOut = () => !!(S.matCtl && S.matCtl.resting && !S.matCtl.atHome);
     return {
       name: 'nap',
+      spot: () => (st.spot ? st.spot.name : null), // 调试：这次睡在哪儿
       // 垫子在窝里、可以拖出去晒太阳时，由 sunbathe 取代大部分打盹
-      weight: () => (S.env.hour >= 12.25 && S.env.hour < 14.75 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 5 : 10) : 0) * S.napUrge(),
+      weight: () => (matOut() ? 0 : 1) * (S.env.hour >= 12.25 && S.env.hour < 14.75 && S.env.weather !== 'storm' ? (S.matCtl && S.matCtl.atHome && S.sunOK() && S.age >= 20 ? 5 : 10) : 0) * S.napUrge(),
       enter() {
         st.phase = 0; st.t = 0; st.total = 0; st.dur = S.rest(600, 1200); // 午觉一睡 10–20 分钟
         st.nextStir = S.rest(70, 160); st.inWin = inWindow();
         S.look(null);
-        startTravel(st, A.napSpot.x, A.napSpot.z, { arriveR: 0.15 });
+        let k = rint(0, spots.length - 1);
+        if (spots.length > 1 && k === st.last) k = (k + 1) % spots.length;
+        st.last = k; st.spot = spots[k]; st.lieT = 0;
+        startTravel(st, st.spot.x, st.spot.z, { arriveR: 0.15 });
       },
       update(dt) {
         if (st.phase === 0) {
-          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; }
+          if (travelDone(st, dt)) { st.phase = 1; st.t = 0; if (Number.isFinite(st.spot.facing)) mover.face(st.spot.facing); }
           return false;
         }
         st.t += dt;
         if (st.phase === 1) {
-          dog.setAction(st.t < 0.5 ? 'idle' : 'lie');
-          if (st.t > 1.6) { st.phase = 2; st.t = 0; }
+          // 先转到位（门口脸朝外、树下脸朝草坪）再趴下
+          const turning = Number.isFinite(st.spot.facing) && mover.headingError(st.spot.facing) > 0.15 && st.t < 2.2;
+          if (turning) { dog.setAction(mover.gait() || 'idle'); st.lieT = st.t; return false; }
+          const lt = st.t - (st.lieT || 0);
+          dog.setAction(lt < 0.5 ? 'idle' : 'lie');
+          if (lt > 1.6) { st.phase = 2; st.t = 0; st.lieT = 0; }
         } else if (st.phase === 2) {
           st.total += dt;
           dog.setAction('sleep');

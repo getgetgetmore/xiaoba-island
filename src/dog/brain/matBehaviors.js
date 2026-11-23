@@ -13,6 +13,7 @@ export function createMatBehaviors(S) {
   const HAUL_SPEED = 0.62;
 
   const dropHeld = () => { if (M.carried) M.release(); dog.setCarrying(false); mover.reverse = false; };
+  const inNapWindow = () => S.env.hour >= 12.25 && S.env.hour < 14.75; // 午睡的时段（和 behaviors.js 的 nap 一致）
   const faceTo = (x, z) => Math.atan2(x - mover.x, z - mover.z);
   /** 窝里咬垫子的站位：在门内、垫子靠门一侧，面朝窝里 */
   function kennelGrabPoint() {
@@ -136,8 +137,11 @@ export function createMatBehaviors(S) {
       name: 'sunbathe',
       phase: () => st.phase,
       weight() {
-        if (!S.sunOK() || !M.resting) return 0;
+        if (!M.resting) return 0;
         const h = S.env.hour;
+        // 垫子在外面、又到了午睡的时候：不管出不出太阳都去垫子上睡（午睡的规矩：垫子在外面就睡垫子上；睡醒照样把垫子叼回窝里）
+        const napOnMat = !M.atHome && inNapWindow() && S.env.weather !== 'storm' && !S.rainHold && !S.env.isRaining;
+        if (!S.sunOK() && !napOnMat) return 0;
         let w = h >= 12.5 && h < 14.5 ? 7 : 3.5;
         if (!M.atHome) w *= 2 + Math.min(4, M.outT / 45); // 垫子已经在外面了：直接去垫子上趴下；放得越久越惦记
         else {
@@ -228,6 +232,7 @@ export function createMatBehaviors(S) {
               setPhase('lie');
               st.total = 0; st.dur = S.rest(600, 1080); st.nextRoll = S.rest(60, 150); // 一晒 10–18 分钟
               st.sunny = S.sunOK();
+              st.napping = !st.sunny; // 没太阳也来睡的：是午睡（垫子在外面），午睡的时段过了就起来
             }
             break;
           }
@@ -240,7 +245,7 @@ export function createMatBehaviors(S) {
             st.total += dt;
             dog.setAction('sleep');
             // 晒够了 / 到饭点了 / 太阳没了（转阴、过了下午四点）：起来把垫子叼回去
-            if (st.total > st.dur || S.wantsMeal() || (st.sunny && !S.sunOK())) { setPhase('wake'); S.sleptAt = S.age; }
+            if (st.total > st.dur || S.wantsMeal() || (st.sunny && !S.sunOK()) || (st.napping && !(S.env.hour >= 12 && S.env.hour < 15))) { setPhase('wake'); S.sleptAt = S.age; }
             else if (st.total > st.nextRoll && st.total < st.dur - 6) { setPhase('roll'); st.rollT = rand(2, 4); }
             break;
           case 'roll':
@@ -280,6 +285,8 @@ export function createMatBehaviors(S) {
       phase: () => st.phase,
       weight() {
         if (!M.resting || M.atHome || S.sleepTime || S.rainHold || S.env.isRaining) return 0;
+        // 午睡的时候垫子在外面：不急着收，先去垫子上睡（sunbathe 管），睡醒了它自己会叼回去
+        if (inNapWindow() && S.env.weather !== 'storm' && S.napUrge() > 0) return 0.3;
         return (S.sunOK() ? 1 : 14) * (1 + Math.min(3, M.outT / 60));
       },
       enter() {

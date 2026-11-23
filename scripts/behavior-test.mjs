@@ -774,6 +774,45 @@ async function testStuck() {
   report('S3 从以前卡住的位置出发：拿出木棍 9 秒内跑回 front', r3.hit, `耗时 ${f2(r3.t)}s, 距 front ${f2(distTo(ctx, a.front))}, ${brain.state}`);
 }
 
+// ---------------------------------------------------------------- N) 午睡睡在哪儿：垫子在外面 → 垫子上；否则窝门口或树下
+async function testNapSpot() {
+  // N1：垫子在窝里（阴天，不会去晒太阳）：连着午睡 4 次，每次都睡在窝门口或树下，两处都出现过，离瞭望台坡道底端够远
+  {
+    const w = await makeWorld({ hour: 12.4, weather: 'cloudy', restScale: 0.03, seed: SEED + 31 });
+    const { ctx } = w, a = ctx.island.anchors, brain = ctx.brain;
+    if (!a.napSpots || !brain.force) { console.log('SKIP  N1–N2：当前小岛没有 napSpots（stub）'); return; }
+    const lk = a.lookout, ramp = lk ? { x: lk.base.x + (lk.top.x - lk.base.x) * 0.18, z: lk.base.z + (lk.top.z - lk.base.z) * 0.18 } : null; // 坡道底端附近
+    const seen = [], bad = [];
+    for (let k = 0; k < 4; k++) {
+      brain.force('nap');
+      const r = run(w, 90, { until: () => brain.state === 'auto:nap' && ctx.dog.action === 'sleep' });
+      const p = ctx.dog.group.position;
+      const near = a.napSpots.map((s) => [s.name, Math.hypot(p.x - s.x, p.z - s.z)]).sort((x, y) => x[1] - y[1])[0];
+      const dRamp = ramp ? Math.hypot(p.x - ramp.x, p.z - ramp.z) : 99;
+      seen.push(near[0]);
+      if (!r.hit || near[1] > 0.35 || dRamp < 1.6) bad.push(`第 ${k + 1} 次：入睡 ${r.hit}，离 ${near[0]} ${f2(near[1])}，离坡道底端 ${f2(dRamp)}`);
+      run(w, 60, { until: () => !brain.state.startsWith('auto:nap') });
+    }
+    report('N1 垫子在窝里：午睡睡在窝门口或树下（两处都会去），不再睡在瞭望台坡道底下', bad.length === 0 && seen.includes('door') && seen.includes('tree'), `依次睡在 [${seen.join(', ')}]；${bad.join(' | ')}`);
+  }
+  // N2：垫子在外面（晒太阳睡到一半被叫走，垫子留在了草坪上），天转阴：午睡去垫子上睡，而不是先把垫子收回去或者睡到别处
+  {
+    const w = await makeWorld({ hour: 12.4, weather: 'clear', restScale: 0.1, seed: SEED + 32 });
+    const { ctx } = w, brain = ctx.brain, stick = ctx.stick;
+    if (!hasMat(w)) { console.log('SKIP  N2：当前小岛没有垫子（stub）'); return; }
+    run(w, 1);
+    brain.force('sunbathe');
+    const r0 = run(w, 200, { until: () => brain.state === 'auto:sunbathe:sleep' });
+    stick.click(null); run(w, 3); stick.dismiss(); run(w, 2); // 被叫走：垫子留在外面
+    const outAt = matHome(ctx);
+    ctx.env.setWeather('cloudy', { instant: true });
+    const states = new Set();
+    const r = run(w, 150, { onFrame: () => states.add(baseState(brain.state)), until: () => ctx.dog.action === 'sleep' && matDog(ctx) < 0.4 });
+    report('N2 垫子在外面、天阴了：午睡去垫子上睡（不先收垫子、不睡到别处）', r0.hit && outAt > 2 && r.hit && matHome(ctx) > 2 && !states.has('auto:nap') && !states.has('auto:fetchMat'),
+      `垫子离窝 ${f2(outAt)}，${r.hit ? f2(r.t) + 's 后睡在垫子上' : '没睡到垫子上'}，期间出现 [${[...states].join(', ')}]，state=${brain.state}`);
+  }
+}
+
 async function main() {
   console.log(`行为测试：seed=${SEED}；真实模块：${only ? [...only].join(',') || '(无)' : '全部'}`);
   const probe = await makeWorld({});
@@ -782,7 +821,7 @@ async function main() {
     console.log('  注意：brain 或 stick 回退到了 stub，下面的结果不代表 WP5 实现');
   }
   const t0 = Date.now();
-  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['R', testRest], ['S', testStuck], ['P', testP], ['Q', testGame]]) {
+  for (const [name, fn] of [['a', testA], ['b', testB], ['c', testC], ['d/e', testD], ['f', testF], ['g/h', testG], ['extra', testExtra], ['L', testL], ['M', testM], ['R', testRest], ['S', testStuck], ['N', testNapSpot], ['P', testP], ['Q', testGame]]) {
     console.log(`--- ${name}`);
     try { await fn(); } catch (e) { report(`${name} 测试异常`, false, e && e.stack ? e.stack.split('\n').slice(0, 4).join(' | ') : String(e)); }
   }

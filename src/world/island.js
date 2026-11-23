@@ -285,6 +285,13 @@ export function createIsland(ctx) {
 
   const v = (x, z) => new THREE.Vector3(x, heightAt(x, z), z);
   const k = L.kennel;
+  // 树下的午睡点：树干朝草坪一侧 1.55 处（树冠底下、离树干一个身位），脸朝草坪
+  const napTree = (() => {
+    const dx = L.lawn.x - L.tree.x, dz = L.lawn.z - L.tree.z, d = Math.hypot(dx, dz) || 1;
+    let x = L.tree.x + (dx / d) * 1.55, z = L.tree.z + (dz / d) * 1.55;
+    if (!isWalkable(x, z)) { const c = clampWalkable(x, z); x = c.x; z = c.z; }
+    return { x, z, facing: Math.atan2(dx, dz) };
+  })();
   const anchors = {
     // 门外落脚点：离前墙 1.2（要比墙体余量 KENNEL_CLEAR 多出“到达半径 0.2”以上，否则出窝后一步就踩进禁区被卡住）
     kennelDoor: v(k.x + k.dx * (1.1 * k.s + 1.2), k.z + k.dz * (1.1 * k.s + 1.2)),
@@ -296,7 +303,7 @@ export function createIsland(ctx) {
     frontFacing: 0,
     flowerSpots: [v(-1.7, -4.6), v(3.2, -5.1), v(-5.4, 0.7), v(-2.3, 4.7), v(3.4, 5.2), v(5.9, 1.7), v(6.0, 3.0)],
     sniffSpots: [v(3.35, -2.35), v(-0.9, -5.05), v(-1.75, 1.6), v(-1.2, -3.5), v(4.2, -1.75), v(-2.3, 4.2)],
-    napSpot: v(3.6, 1.8),
+    napSpot: v(napTree.x, napTree.z), // 老接口：现在等于树下那个午睡点（原来的 (3.6, 1.8) 紧挨着后来加的瞭望台坡道底端，小狗趴下去头搭在坡道上）
     sunsetSpot: v(2.4, 3.1),
     sunsetFacing: -Math.PI / 2,
     pond: { x: L.pond.x, z: L.pond.z, r: L.pond.r },
@@ -305,6 +312,11 @@ export function createIsland(ctx) {
     // 吃饭时站的位置：碗的右侧（靠门那边、顺着墙的方向）、略靠外，脸朝着碗——从正面看过去能看到它埋头吃的脸，碗在它嘴前不被身子挡住
     bowlStand: (() => { let x = bwx + k.dz * 0.66 + k.dx * 0.3, z = bwz - k.dx * 0.66 + k.dz * 0.3; if (!isWalkable(x, z)) { const c = clampWalkable(x, z); x = c.x; z = c.z; } return v(x, z); })(),
   };
+  // 午睡的地方（垫子在窝里时）：窝门口（门外落脚点，脸朝外）或者树下。垫子在外面时睡在垫子上（见 brain/matBehaviors.js）。
+  anchors.napSpots = [
+    { name: 'door', x: anchors.kennelDoor.x, z: anchors.kennelDoor.z, facing: k.facing },
+    { name: 'tree', x: napTree.x, z: napTree.z, facing: napTree.facing },
+  ];
 
   // 池塘里的常驻小动物：青蛙（荷叶）与螃蟹（岸边石头）
   const pondLife = createPondLife({ heightAt, anchors, rng: mulberry32(9090) });
