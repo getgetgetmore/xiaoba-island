@@ -1297,11 +1297,12 @@ function buildBack(W, R, id) {
   const lift = LIFT();
   if (id === 'back_wings') {
     // 一对白色天使小翅膀：长在肩胛后面，向外上方张开、略向后掠；羽毛一排排（条纹）
-    const g = wingGeo(0.25, (u) => [0.03 + 0.075 * Math.sin(Math.PI * Math.min(1, u * 1.05)) * (1 - 0.3 * u), 0.025 + 0.075 * Math.sin(Math.PI * u) * (0.75 + 0.25 * Math.abs(Math.sin(u * Math.PI * 4)))], 0.014);
+    // 上缘是一条拱起的弧；下缘是三片分明的羽毛（越往翼尖越长），这样一眼看得出是翅膀而不是一团白
+    const g = wingGeo(0.29, (u) => [0.03 + 0.07 * Math.sin(Math.PI * Math.min(1, u * 1.05)) * (1 - 0.3 * u), 0.02 + (0.05 + 0.07 * u) * Math.sin(Math.PI * Math.min(1, u * 1.02)) ** 0.6 * (0.42 + 0.58 * Math.abs(Math.sin(u * Math.PI * 3)))], 0.014, 30, 10);
     for (const s of [1, -1]) {
       const { m, h } = backFrame(R, 0.06 * s, 0.07, 0.035 + lift);
       // 本地：x 翼展（往外上、后掠），y 朝上
-      const span = new THREE.Vector3(s * 0.78, 0.5, -0.38).normalize().transformDirection(body);
+      const span = new THREE.Vector3(s * 0.62, 0.72, -0.32).normalize().transformDirection(body);
       const up0 = new THREE.Vector3(0, 1, 0.25).transformDirection(body);
       const upA = up0.addScaledVector(span, -up0.dot(span)).normalize();
       const thA = new THREE.Vector3().crossVectors(span, upA);
@@ -1417,6 +1418,7 @@ export function createWornGarment(id, rig, variant = '') {
 // 朝向约定：都按“穿 / 戴在站立小狗身上”的朝向摆。
 //   衣服、小背包：身体长轴沿 X，领口（小狗前方）朝 +X，背朝 +Y，从 +Z 看是侧面（小狗的右侧）；
 //                 衣服背上两个小木夹 + 两根细绳吊着（绳顶 = 模型最高处，便于挂在杆子下）。
+//   小翅膀例外：从小狗背后看（一对翅膀左右展开），侧面看它只剩一条边。
 //   帽子：帽口朝下、帽檐正前方朝 +Z；墨镜、蝴蝶结：正面朝 +Z；
 //   围巾 / 领结 / 花环：按戴在脖子上的倾角，小狗前方朝 +Z 再往 +X 偏 0.6（从侧前方看最好认）；
 //   鞋袜：鞋底朝下、鞋尖朝 +Z，四只排一排。
@@ -1456,7 +1458,10 @@ function buildDisplay(id) {
   const mats = [];
   const v = new THREE.Vector3(), n = new THREE.Vector3(), m3 = new THREE.Matrix3();
   // 每个顶点按 tag 选陈列变换（静止网格空间 → 陈列空间）
-  if (g.zone === 'body' || g.zone === 'back') {
+  if (id === 'back_wings') {
+    // 小翅膀是往两边张开的薄片，从侧面看只剩一条边：按“从小狗背后看”摆，一对翅膀左右展开
+    mats[0] = new THREE.Matrix4().makeRotationX(-0.3).multiply(new THREE.Matrix4().makeRotationY(Math.PI)).multiply(R.inv[R.B.body]);
+  } else if (g.zone === 'body' || g.zone === 'back') {
     mats[0] = SIDE_VIEW.clone().multiply(R.inv[R.B.body]);
   } else if (g.zone === 'feet') {
     // 四只排成一排：左右成对，前脚一对在前排、后脚一对在后排稍错开
