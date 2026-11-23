@@ -19,6 +19,10 @@ const cx = r.left + (v.x * 0.5 + 0.5) * r.width, cy = r.top + (-v.y * 0.5 + 0.5)
 const ev = (type, o = {}) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 5, button: 0, clientX: cx, clientY: cy, screenX: cx, screenY: cy, ...o }));
 ev('pointermove'); step(0.1);
 ck('悬停在小屋正面：可以点（hover，光标是手指）', W.hover === true && el.style.cursor === 'pointer', { hover: W.hover, cursor: el.style.cursor });
+// 按住拖出去 40 像素又拖回原处松手：这是拖窗口，不是点击
+ev('pointerdown'); ev('pointermove', { screenX: cx + 40, screenY: cy + 30 }); ev('pointermove'); ev('pointerup'); step(0.05);
+ck('按住拖一圈回到原处松手：不算点击，不进衣帽间', !W.active && W.phase === 'idle', W.phase);
+ev('pointermove'); step(0.05);
 ev('pointerdown'); ev('pointerup'); step(0.05);
 ck('点一下小屋正面：开始进衣帽间，小狗由 brain 的 game 模式托管', W.active && W.phase === 'in' && B.mode === 'game', W.info());
 // 互斥：这时点玩具架上的树枝没有反应

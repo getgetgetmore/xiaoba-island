@@ -232,12 +232,17 @@ export function createWardrobe(ctx, { createRoom } = {}) {
     return door.pickFront(ray);
   }
   let down = null;
-  canvas.addEventListener('pointerdown', (e) => { if (e.button === 0) down = { x: e.screenX, y: e.screenY }; });
-  canvas.addEventListener('pointermove', (e) => { W.hover = !W.active && canOpen(true) && overFront(e); });
+  canvas.addEventListener('pointerdown', (e) => { if (e.button === 0) down = { x: e.screenX, y: e.screenY, far: 0 }; });
+  canvas.addEventListener('pointermove', (e) => {
+    // 记下按住期间离起点最远到过哪儿：拖着窗口转一圈又回到原处松手，不能算一次点击
+    if (down) down.far = Math.max(down.far, Math.hypot(e.screenX - down.x, e.screenY - down.y));
+    W.hover = !W.active && !down && canOpen(true) && overFront(e);
+  });
   canvas.addEventListener('pointerleave', () => { W.hover = false; down = null; });
+  canvas.addEventListener('pointercancel', () => { down = null; });
   canvas.addEventListener('pointerup', (e) => {
     if (!down || e.button !== 0) return;
-    const moved = Math.hypot(e.screenX - down.x, e.screenY - down.y);
+    const moved = Math.max(down.far, Math.hypot(e.screenX - down.x, e.screenY - down.y));
     down = null;
     if (moved > 6 || W.active) return; // 拖动是移动窗口，不算点击
     if (ctx.stick && ctx.stick.state !== 'hidden') return;
