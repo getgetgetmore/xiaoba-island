@@ -146,7 +146,12 @@ ck('点 ▶：换一面背景墙（存了档）', C.info().backdrop === (bd0 + 1
 const poses = {};
 for (const name of ['站好', '坐好', '眯眼笑', '趴下', '撅屁股', '露肚皮']) { btn(name).click(); step(0.5); poses[name] = D.action; }
 ck('六个固定拍照姿势都能摆', poses['站好'] === 'idle' && poses['坐好'] === 'sit' && poses['趴下'] === 'lie' && poses['撅屁股'] === 'playbow' && poses['露肚皮'] === 'roll', poses);
-if (stopAt === 'photo') { if (q.get('bd')) R.photo.setBackdrop(+q.get('bd')); btn(q.get('pose') || '坐好').click(); step(1.2); return done(); }
+if (stopAt === 'photo') {
+  if (q.get('bd')) R.photo.setBackdrop(+q.get('bd')); btn(q.get('pose') || '坐好').click(); step(1.2);
+  // 前面自拍“咔嚓”的白色闪光靠定时器淡出，脚本同步跑完之前定时器不会触发：截图前手动清掉
+  for (const d of document.querySelectorAll('.pet-wardrobe div')) if (d.style.background === 'rgb(255, 255, 255)') { d.style.transition = 'none'; d.style.opacity = '0'; }
+  return done();
+}
 btn('咔嚓').click(); step(0.2);
 ck('拍照区也能“咔嚓”存照片', downloads === 2);
 
