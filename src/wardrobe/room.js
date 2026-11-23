@@ -228,7 +228,7 @@ export function createWardrobeRoom() {
   // ---------- 灯泡串（没有天花板，不做横梁；每面墙顶上有一条压顶木，属于各自的墙） ----------
   // 两串小灯泡（挂在东西墙之间，低垂的弧线）
   const bulbPos = [];
-  for (const [zc, yEnd, sag] of [[0.5, 3.0, 0.3], [2.3, 3.0, 0.28]]) {
+  for (const [zc, yEnd, sag] of [[-0.3, 3.12, 0.25], [2.3, 3.0, 0.28]]) {
     const xL = -HW + 0.06, xR = HW - 0.06;
     const p = (t) => [xL + (xR - xL) * t, yEnd - sag * 4 * t * (1 - t), zc + Math.sin(t * 7 + zc) * 0.06];
     for (let i = 0; i < 36; i++) cylBetween(bG, p(i / 36), p((i + 1) / 36), 0.01, 0.01, 3, { color: C.woodDeep, ao: false, jitter: 0 });
@@ -241,12 +241,13 @@ export function createWardrobeRoom() {
     }
   }
 
+  const RUG_Z = 0.6, RUG_S = 0.7; // 地垫缩小并南移，给换装站台和帘子让位
   // ---------- 圆形编织地垫（房间中央，顶面 y = 0） ----------
   {
     const rings = [[1.6, PAL.rugRed], [1.38, PAL.rugCream], [1.18, PAL.rugTeal], [0.96, PAL.rugGold], [0.74, PAL.rugRed], [0.5, PAL.rugCream], [0.26, PAL.rugTeal]];
-    rings.forEach(([r, col], i) => sG.add(new THREE.CylinderGeometry(r, r, 0.07, 32), { pos: [0, i * 0.0015 - 0.035, 0], color: col, ao: false, jitter: 0.06 }));
+    rings.forEach(([r, col], i) => sG.add(new THREE.CylinderGeometry(r, r, 0.07, 32), { pos: [0, i * 0.0015 - 0.035, RUG_Z], scale: [RUG_S, 1, RUG_S], color: col, ao: false, jitter: 0.06 }));
     const rope = new THREE.TorusGeometry(1.6, 0.04, 6, 48); rope.rotateX(PI / 2);
-    sG.add(rope, { pos: [0, -0.005, 0], color: 0xa98840, ao: false, jitter: 0.1 });
+    sG.add(rope, { pos: [0, -0.005, RUG_Z], scale: [RUG_S, 1, RUG_S], color: 0xa98840, ao: false, jitter: 0.1 });
   }
 
   // ---------- 四面墙：竖板（长短不一）+ 踢脚板 + 横档 ----------
@@ -301,75 +302,112 @@ export function createWardrobeRoom() {
     }
   };
 
-  // ======================= north：橱柜区 =======================
-  // 橱柜：宽 5.2（含两侧各 0.5 的立柱）、高 2.91、进深 0.68，正面敞开。四排：帽子 / 衣服（挂衣杆）/ 装饰品 / 鞋子
-  const ROWS = [
-    { zone: 'hat', y: 2.24, ctr: 2.54 },
-    { zone: 'top', y: 1.5, ctr: 1.81 },
-    { zone: 'acc', y: 0.77, ctr: 1.07 },
-    { zone: 'shoes', y: 0.12, ctr: 0.42 },
+  // ======================= north：两个柜体（左 3 排 / 右 3 排） =======================
+  // 左柜体：head 头上 / eyes 眼睛 / neck 脖子；右柜体：body 身上（挂衣杆）/ back 背上 / feet 脚上（鞋架）。
+  // 每个柜体：宽 4.15（左端 0.45 的图标立柱 + 3.6 的内宽 + 0.1 右立柱），高 2.38，正面敞开。两柜体之间隔 0.3 的墙面。
+  const PITCH = 0.95, CAB_LZ = 0.38, CAB_H = 2.38, INNER = 3.6;
+  const SECS = [
+    { id: 'left', zones: ['head', 'eyes', 'neck'], xl: -4.3 },
+    { id: 'right', zones: ['body', 'back', 'feet'], xl: 0.15 },
   ];
-  const CAB_LZ = 0.38; // 陈列品中心离墙的距离（世界 z = -3.5 + 0.38 = -3.12）
-  const PITCH = 1.0;
+  for (const sc of SECS) {
+    sc.x0 = sc.xl + 0.45; sc.x1 = sc.x0 + INNER; sc.cx = (sc.x0 + sc.x1) / 2; sc.mid = sc.xl + 2.075;
+  }
+  // y = 陈列品底部；ctr = 木牌高度
+  const ROWDEF = [
+    { zone: 'head', section: 0, y: 1.44, ctr: 1.88 },
+    { zone: 'eyes', section: 0, y: 0.78, ctr: 1.1 },
+    { zone: 'neck', section: 0, y: 0.12, ctr: 0.43 },
+    { zone: 'body', section: 1, y: 1.64, ctr: 1.83, rail: 2.22 },
+    { zone: 'back', section: 1, y: 0.78, ctr: 1.1 },
+    { zone: 'feet', section: 1, y: 0.12, ctr: 0.43 },
+  ];
   {
     const s = 'north', B = bd.north, zc = 0.37;
-    put(B, s, BOX(5.2, 0.08, 0.66), 0, 0.04, zc, { color: C.woodDeep });
-    for (const sx of [-1, 1]) {
-      put(B, s, BOX(0.5, 2.83, 0.64), sx * 2.35, 1.495, 0.36, { color: tone(PAL.post, 0.12), ao: true });
-      put(B, s, BOX(0.04, 2.7, 0.02), sx * 2.35 + 0.17 * sx, 1.5, 0.69, { color: 0x6a4e34 });
+    for (const sc of SECS) {
+      const W4 = 0.45 + INNER + 0.1;
+      put(B, s, BOX(W4, 0.08, 0.66), sc.xl + W4 / 2, 0.04, zc, { color: C.woodDeep });
+      put(B, s, BOX(0.45, CAB_H - 0.08, 0.64), sc.xl + 0.225, 0.08 + (CAB_H - 0.08) / 2, 0.36, { color: tone(PAL.post, 0.12), ao: true });
+      put(B, s, BOX(0.1, CAB_H - 0.08, 0.64), sc.x1 + 0.05, 0.08 + (CAB_H - 0.08) / 2, 0.36, { color: tone(PAL.post, 0.12), ao: true });
+      for (let i = 0; i < 10; i++) put(B, s, BOX(0.355, CAB_H - 0.1, 0.03), sc.x0 + 0.18 + i * 0.36, 0.1 + (CAB_H - 0.1) / 2, 0.065, { color: tone(PAL.back, 0.2) });
+      for (let i = 0; i < 9; i++) put(B, s, BOX(0.36, 0.04, 0.62), sc.x0 + 0.2 + i * 0.4, 0.10, zc, { color: tone(PAL.shelf, 0.14) });
+      put(B, s, BOX(INNER, 0.04, 0.03), sc.cx, 0.14, 0.695, { color: PAL.shelfDark });
+      // 隔板：下两层净空 0.62，顶排：右柜体挂衣杆（杆下净空 0.78），左柜体帽子（0.94）
+      for (const [y, t] of [[0.76, 0.04], [1.42, 0.04], [CAB_H - 0.03, 0.06]]) {
+        put(B, s, BOX(INNER, t, 0.62), sc.cx, y, zc, { color: tone(PAL.shelf, 0.1) });
+        put(B, s, BOX(INNER, t + 0.03, 0.025), sc.cx, y, 0.69, { color: PAL.shelfDark });
+      }
+      put(B, s, BOX(W4 + 0.12, 0.07, 0.74), sc.xl + W4 / 2, CAB_H + 0.035, 0.37, { color: C.woodDeep });
     }
-    // 后板：竖板，深青绿色，衬出陈列品
-    for (let i = 0; i < 12; i++) put(B, s, BOX(0.345, 2.75, 0.03), -2.1 + 0.175 + i * 0.35, 1.475, 0.065, { color: tone(PAL.back, 0.2) });
-    // 鞋架：条板
-    for (let i = 0; i < 10; i++) put(B, s, BOX(0.38, 0.04, 0.62), -1.89 + i * 0.42, 0.10, zc, { color: tone(PAL.shelf, 0.14) });
-    put(B, s, BOX(4.2, 0.04, 0.03), 0, 0.14, 0.695, { color: PAL.shelfDark });
-    // 隔板（净空：鞋 0.61 / 装饰 0.61 / 衣服 0.78 / 帽子 0.61）
-    for (const [y, t] of [[0.75, 0.04], [1.40, 0.04], [2.22, 0.04], [2.88, 0.06]]) {
-      put(B, s, BOX(4.2, t, 0.62), 0, y, zc, { color: tone(PAL.shelf, 0.1) });
-      put(B, s, BOX(4.2, t + 0.03, 0.025), 0, y, 0.69, { color: PAL.shelfDark });
+    // 右柜体的挂衣杆
+    {
+      const sc = SECS[1], ry = ROWDEF[3].rail;
+      rod(B, s, [sc.x0, ry, CAB_LZ], [sc.x1, ry, CAB_LZ], 0.022, 0.022, 6, { color: 0xd7b98a });
+      for (const x of [sc.x0 + 0.03, sc.x1 - 0.03]) put(B, s, BOX(0.06, 0.1, 0.1), x, ry, CAB_LZ, { color: C.woodDeep });
     }
-    put(B, s, BOX(5.4, 0.07, 0.74), 0, 2.945, 0.37, { color: C.woodDeep });
-    // 挂衣杆
-    rod(B, s, [-2.1, 2.1, CAB_LZ], [2.1, 2.1, CAB_LZ], 0.022, 0.022, 6, { color: 0xd7b98a });
-    for (const sx of [-1, 1]) put(B, s, BOX(0.06, 0.1, 0.1), sx * 2.07, 2.1, CAB_LZ, { color: C.woodDeep });
-    // 右立柱上的小木钉（装饰）
-    for (const y of [0.42, 1.07, 1.81, 2.54]) {
-      rod(B, s, [2.35, y, 0.68], [2.35, y, 0.78], 0.025, 0.04, 6, { color: C.woodDeep });
-    }
-    // 左立柱上的小木牌（用图形示意：帽子 / 衣架 / 蝴蝶结 / 鞋子）
-    for (const r of ROWS) {
-      const px = -2.35, py = r.ctr, pz = 0.68;
-      put(B, s, BOX(0.36, 0.36, 0.025), px, py, pz + 0.0125, { color: 0xd9c18f, ao: false });
-      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) put(B, s, BOX(0.025, 0.025, 0.012), px + dx * 0.15, py + dy * 0.15, pz + 0.03, { color: C.woodDeep });
+    // 每排左端的图标木牌
+    for (const r of ROWDEF) {
+      const sc = SECS[r.section];
+      const px = sc.xl + 0.225, py = r.ctr, pz = 0.68;
+      put(B, s, BOX(0.34, 0.34, 0.025), px, py, pz + 0.0125, { color: 0xd9c18f, ao: false });
+      for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) put(B, s, BOX(0.025, 0.025, 0.012), px + dx * 0.14, py + dy * 0.14, pz + 0.03, { color: C.woodDeep });
       const ic = 0x7a4a2a, z0 = pz + 0.032;
       const ip = (pts, dx = 0, dy = 0, col = ic) => put(B, s, poly(pts), px + dx, py + dy, z0, { color: col });
-      if (r.zone === 'hat') { // 礼帽
+      const ring = (cx, cy, ro, ri) => {
+        const n = 10, o = [], i2 = [];
+        for (let k = 0; k < n; k++) { const a = k / n * PI * 2; o.push([cx + Math.cos(a) * ro, cy + Math.sin(a) * ro]); i2.push([cx + Math.cos(a) * ri, cy + Math.sin(a) * ri]); }
+        ip(o); ip(i2, 0, 0, 0xd9c18f);
+      };
+      if (r.zone === 'head') { // 礼帽
         ip([[-0.06, -0.03], [0.06, -0.03], [0.055, 0.07], [-0.055, 0.07]], 0, 0.01);
         ip([[-0.12, -0.07], [0.12, -0.07], [0.1, -0.03], [-0.1, -0.03]], 0, 0.01);
         ip([[-0.06, -0.02], [0.06, -0.02], [0.06, 0.012], [-0.06, 0.012]], 0, 0.01, C.rust);
-      } else if (r.zone === 'top') { // 衣架
+      } else if (r.zone === 'eyes') { // 眼镜
+        ring(-0.07, 0, 0.06, 0.04); ring(0.07, 0, 0.06, 0.04);
+        ip([[-0.015, 0.005], [0.015, 0.005], [0.015, 0.02], [-0.015, 0.02]]);
+        ip([[-0.14, 0.02], [-0.12, 0.02], [-0.12, 0.04], [-0.14, 0.04]]);
+      } else if (r.zone === 'neck') { // 围巾 / 领结
+        ip([[0, 0], [0.12, 0.08], [0.12, -0.08]], 0, 0, C.rust);
+        ip([[0, 0], [-0.12, 0.08], [-0.12, -0.08]], 0, 0, C.rust);
+        ip([[-0.03, -0.035], [0.03, -0.035], [0.03, 0.035], [-0.03, 0.035]], 0, 0, 0x4a2a14);
+      } else if (r.zone === 'body') { // 衣架
         ip([[-0.012, 0.1], [0.012, 0.1], [0.012, 0.05], [-0.012, 0.05]]);
         ip([[-0.014, 0.06], [0.014, 0.05], [0.13, -0.04], [0.11, -0.06]]);
         ip([[0.014, 0.06], [-0.014, 0.05], [-0.13, -0.04], [-0.11, -0.06]]);
         ip([[-0.13, -0.04], [0.13, -0.04], [0.13, -0.065], [-0.13, -0.065]]);
-      } else if (r.zone === 'acc') { // 蝴蝶结
-        ip([[0, 0], [0.12, 0.08], [0.12, -0.08]], 0.0, 0, C.rust);
-        ip([[0, 0], [-0.12, 0.08], [-0.12, -0.08]], 0.0, 0, C.rust);
-        ip([[-0.03, -0.035], [0.03, -0.035], [0.03, 0.035], [-0.03, 0.035]], 0, 0, 0x4a2a14);
+      } else if (r.zone === 'back') { // 小背包
+        ip([[-0.08, -0.09], [0.08, -0.09], [0.08, 0.06], [-0.08, 0.06]]);
+        ip([[-0.06, 0.06], [0.06, 0.06], [0.04, 0.1], [-0.04, 0.1]]);
+        ip([[-0.065, -0.01], [0.065, -0.01], [0.065, 0.03], [-0.065, 0.03]], 0, 0, C.rust);
+        ip([[-0.055, -0.08], [0.055, -0.08], [0.055, -0.05], [-0.055, -0.05]], 0, 0, 0x4a2a14);
       } else { // 鞋子
         ip([[-0.12, -0.06], [0.12, -0.06], [0.12, -0.03], [-0.12, -0.03]], 0, -0.02, 0x4a2a14);
         ip([[-0.12, -0.03], [-0.02, -0.03], [-0.02, 0.09], [-0.12, 0.09]], 0, -0.02);
         ip([[-0.02, -0.03], [0.12, -0.03], [0.1, 0.02], [-0.02, 0.05]], 0, -0.02);
       }
     }
-    // 墙上点缀
-    painting('north', -3.55, 1.9, 0.8, 1.0, 0xa8c8d8, 0x6a8a52, 0xf2d27a);
-    painting('north', 3.55, 1.9, 0.8, 1.0, 0xe8c8b0, 0x8a6a52, 0xf2e8d0);
-    // 左上角（西北角）的帽盒堆 + 右上角（东北角）的大木箱
-    hatboxW(B, -3.85, 0, -2.85, 0.34, 0.3, 0xd7b98a, C.rust);
-    hatboxW(B, -3.85, 0.4, -2.85, 0.26, 0.22, C.cream, C.rugTeal);
-    hatboxW(B, -3.2, 0, -3.0, 0.26, 0.24, C.rugTeal, C.cream);
-    crateW(B, 3.85, -2.85, 0.9, 0.5, 0.55, -0.1, C.woodGrey);
+  }
+
+
+  // ======================= north 墙 group：换装站台 + 帘子轨道（站台在两个柜体正前方居中） =======================
+  const ST = { x: 0, z: -1.8, r: 0.8, top: 0.1 };
+  const CURT = { z: 1.55, x0: -1.7, x1: 1.7, rail: 2.25, post: 1.78 };
+  {
+    const B = bd.north;
+    B.add(new THREE.CylinderGeometry(0.93, 0.95, 0.06, 28), { pos: [ST.x, 0.01, ST.z], color: C.woodDeep, ao: false });
+    B.add(new THREE.CylinderGeometry(0.82, 0.84, 0.092, 28), { pos: [ST.x, 0.046, ST.z], color: 0x7a5a3c, ao: false });
+    for (let i = 0; i < 8; i++) {
+      B.add(new THREE.CylinderGeometry(0.79, 0.79, 0.016, 3, 1, false, i * PI / 4, PI / 4), { pos: [ST.x, 0.092, ST.z], color: tone(i % 2 ? 0xb08c60 : 0xa07c52, 0.12), ao: false });
+    }
+    const rim = new THREE.TorusGeometry(0.81, 0.028, 5, 36); rim.rotateX(PI / 2);
+    B.add(rim, { pos: [ST.x, 0.085, ST.z], color: 0x4a3626, ao: false, jitter: 0.04 });
+    for (const sx of [-1, 1]) {
+      const x = sx * CURT.post;
+      cylBetween(B, [x, 0.03, CURT.z], [x, CURT.rail + 0.05, CURT.z], 0.032, 0.026, 6, { color: C.woodWarm, ao: false });
+      B.add(new THREE.CylinderGeometry(0.13, 0.15, 0.05, 10), { pos: [x, 0.0, CURT.z], color: C.woodGreyDark, ao: false });
+      B.add(new THREE.IcosahedronGeometry(0.05, 1), { pos: [x, CURT.rail + 0.09, CURT.z], color: C.woodDeep, ao: false });
+    }
+    cylBetween(B, [-CURT.post, CURT.rail, CURT.z], [CURT.post, CURT.rail, CURT.z], 0.022, 0.022, 6, { color: 0xd7b98a, ao: false });
   }
 
   // ======================= west：镜子区 =======================
@@ -424,15 +462,15 @@ export function createWardrobeRoom() {
     B.add(new THREE.CylinderGeometry(0.97, 0.97, 0.025, 28), { pos: [PH.x, 0.0, PH.z], color: C.woodDeep, ao: false });
     // 两侧的柔光灯（三脚架 + 柔光箱，灯面用发光材质，布景）
     for (const sz of [-1, 1]) {
-      const bx = 3.75, bz = sz * 1.95, yaw = Math.atan2(PH.x - bx, PH.z - bz);
+      const bx = 4.05, bz = sz * 1.95, yaw = Math.atan2(PH.x - bx, PH.z - bz);
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * PI * 2 + 0.6;
-        cylBetween(B, [bx, 1.3, bz], [bx + Math.cos(a) * 0.34, 0, bz + Math.sin(a) * 0.34], 0.022, 0.016, 5, { color: C.woodGreyDark, ao: false });
+        cylBetween(B, [bx, 1.3, bz], [bx + Math.cos(a) * 0.26, 0, bz + Math.sin(a) * 0.26], 0.022, 0.016, 5, { color: C.woodGreyDark, ao: false });
       }
       cylBetween(B, [bx, 1.2, bz], [bx, 1.7, bz], 0.03, 0.026, 6, { color: C.woodDeep, ao: false });
       const fx = Math.sin(yaw), fz = Math.cos(yaw);
-      B.add(BOX(0.6, 0.6, 0.16), { pos: [bx, 1.8, bz], rot: [0, yaw, 0], color: C.woodDeep, ao: false });
-      gE.add(BOX(0.5, 0.5, 0.03), { pos: [bx + fx * 0.09, 1.8, bz + fz * 0.09], rot: [0, yaw, 0] });
+      B.add(BOX(0.5, 0.5, 0.14), { pos: [bx, 1.8, bz], rot: [0, yaw, 0], color: C.woodDeep, ao: false });
+      gE.add(BOX(0.42, 0.42, 0.03), { pos: [bx + fx * 0.09, 1.8, bz + fz * 0.09], rot: [0, yaw, 0] });
     }
     painting('east', -2.75, 1.9, 0.62, 0.8, 0xe8c8d8, 0x8a7a62, 0xf2e8d0);
     painting('east', 2.75, 1.9, 0.62, 0.8, 0xb8d8c8, 0x6a8a52, 0xf2d27a);
@@ -489,6 +527,67 @@ export function createWardrobeRoom() {
   }
   wallGroups.east.add(mkMesh(gE, matSoft, false, false));
 
+  // ---------- 帘子：左右两片，单个动态网格（竖向褶 + 双面），setOpen(k) 改顶点，不分配对象 ----------
+  const FOLDS = 7, SEG = 8, NC = FOLDS * SEG + 1, CY1 = CURT.rail - 0.02, CY0 = 0.05, XE = 1.7;
+  const cPos = new Float32Array(2 * NC * 2 * 3), cNor = new Float32Array(2 * NC * 2 * 3), cUv = new Float32Array(2 * NC * 2 * 2);
+  const cIdx = new Uint16Array((NC - 1) * 2 * 3 * 2);
+  for (let p = 0, t = 0; p < 2; p++) {
+    for (let c = 0; c < NC; c++) {
+      for (let r = 0; r < 2; r++) { const vi = (p * NC + c) * 2 + r; cUv[vi * 2] = (c / (NC - 1)) * 3; cUv[vi * 2 + 1] = r === 0 ? 3.9 : 0; }
+      if (c < NC - 1) {
+        const a = (p * NC + c) * 2, b2 = a + 2;
+        cIdx[t++] = a; cIdx[t++] = a + 1; cIdx[t++] = b2; cIdx[t++] = a + 1; cIdx[t++] = b2 + 1; cIdx[t++] = b2;
+      }
+    }
+  }
+  const curtainGeo = new THREE.BufferGeometry();
+  curtainGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
+  curtainGeo.setAttribute('normal', new THREE.BufferAttribute(cNor, 3));
+  curtainGeo.setAttribute('uv', new THREE.BufferAttribute(cUv, 2));
+  curtainGeo.setIndex(new THREE.BufferAttribute(cIdx, 1));
+  const clothTex = (() => {
+    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+    const g = cv.getContext('2d'); const rn = mulberry32(55);
+    g.fillStyle = '#f2e7cc'; g.fillRect(0, 0, 256, 256);
+    for (let x = 0; x < 256; x += 64) { g.fillStyle = '#e4c79c'; g.fillRect(x, 0, 10, 256); g.fillStyle = '#d98c5f'; g.fillRect(x + 14, 0, 3, 256); }
+    for (let i = 0; i < 26; i++) {
+      const x = 32 + Math.floor(rn() * 4) * 64 + (rn() - 0.5) * 20, y = rn() * 256;
+      g.fillStyle = rn() < 0.5 ? '#e9a8a0' : '#9cb88a';
+      for (let k = 0; k < 5; k++) { const a = k * PI * 2 / 5; g.beginPath(); g.arc(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 3, 0, PI * 2); g.fill(); }
+      g.fillStyle = '#f0c24a'; g.beginPath(); g.arc(x, y, 2.2, 0, PI * 2); g.fill();
+    }
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+    return t;
+  })();
+  const curtainMat = new THREE.MeshStandardMaterial({ map: clothTex, side: THREE.DoubleSide, roughness: 1, metalness: 0, color: 0xcfc4ac, emissive: 0x120d08 });
+  const curtainMesh = new THREE.Mesh(curtainGeo, curtainMat);
+  curtainMesh.name = 'curtain'; curtainMesh.castShadow = true; curtainMesh.receiveShadow = false; curtainMesh.frustumCulled = false;
+  wallGroups.north.add(curtainMesh);
+  let curtainK = 1;
+  function setOpen(k) {
+    k = k > 1 ? 1 : k < 0 ? 0 : (k === k ? k : 1);
+    curtainK = k;
+    const w = 0.3 + (1.72 - 0.3) * (1 - k), amp = 0.02 + 0.055 * k;
+    for (let p = 0; p < 2; p++) {
+      const sgn = p === 0 ? -1 : 1;
+      for (let c = 0; c < NC; c++) {
+        const u = c / (NC - 1), ph = u * FOLDS * PI * 2 + p * 0.9;
+        const x = sgn * XE - sgn * u * w, z = CURT.z + amp * Math.sin(ph) + p * 0.014;
+        const tz = amp * FOLDS * PI * 2 * Math.cos(ph) / 1, tx = -sgn * w;
+        let nx = sgn * tz, nz = -sgn * tx;
+        const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
+        for (let r = 0; r < 2; r++) {
+          const o = ((p * NC + c) * 2 + r) * 3;
+          cPos[o] = x; cPos[o + 1] = r === 0 ? CY1 : CY0; cPos[o + 2] = z;
+          cNor[o] = nx; cNor[o + 1] = 0; cNor[o + 2] = nz;
+        }
+      }
+    }
+    curtainGeo.attributes.position.needsUpdate = true;
+    curtainGeo.attributes.normal.needsUpdate = true;
+  }
+  setOpen(1);
+
   // 镜子：Reflector（真的能照出小狗）。color 的线性值 0.5 = 叠加混合的恒等
   const mirrorGeo = new THREE.PlaneGeometry(1.0, 1.9);
   const mirrorMesh = new Reflector(mirrorGeo, { textureWidth: 512, textureHeight: 512, color: new THREE.Color().setRGB(0.5, 0.5, 0.5, THREE.LinearSRGBColorSpace), clipBias: 0.003 });
@@ -514,7 +613,7 @@ export function createWardrobeRoom() {
   // ---------- 站位 ----------
   const dogSpot = new THREE.Object3D();
   dogSpot.name = 'dogSpot';
-  dogSpot.position.set(0, 0, 1.0);
+  dogSpot.position.set(0, 0, 2.8); // 帘子（z=1.55）以南 1.25
   dogSpot.rotation.y = PI; // 本地 +Z 朝北（面朝橱柜）
   scene.add(dogSpot);
 
@@ -558,26 +657,40 @@ export function createWardrobeRoom() {
 
   // ---------- 接口数据 ----------
   const obstacles = [];
-  for (let i = 0; i < 7; i++) obstacles.push({ x: -2.4 + i * 0.8, z: -2.95, r: 0.6 }); // 橱柜
+  for (let i = 0; i < 10; i++) obstacles.push({ x: -3.9 + i * 0.8667, z: -2.95, r: 0.6 }); // 两个柜体（含中间的空隙）
   obstacles.push({ x: -4.25, z: -0.4, r: 0.5 }, { x: -4.25, z: 0.4, r: 0.5 }); // 镜子
-  obstacles.push({ x: 3.75, z: -1.95, r: 0.42 }, { x: 3.75, z: 1.95, r: 0.42 }); // 柔光灯架
+  obstacles.push({ x: -CURT.post, z: CURT.z, r: 0.18 }, { x: CURT.post, z: CURT.z, r: 0.18 }); // 帘子立柱
+  obstacles.push({ x: 4.0, z: -1.95, r: 0.4 }, { x: 4.0, z: 1.95, r: 0.4 }); // 柔光灯架
   obstacles.push({ x: -3.5, z: 1.7, r: 0.35 }); // 矮凳
   obstacles.push({ x: -4.0, z: 2.75, r: 0.5 }); // 西南角小箱子
   obstacles.push({ x: -3.95, z: 2.85 - 0.0, r: 0.3 }); // 衣帽架（与小箱子相邻，合并覆盖）
   obstacles.push({ x: 3.7, z: 2.75, r: 0.55 }); // 东南角木箱
-  obstacles.push({ x: -3.85, z: -2.85, r: 0.5 }); // 西北角帽盒堆
-  obstacles.push({ x: 3.85, z: -2.85, r: 0.55 }); // 东北角木箱
   const walk = { x0: -HW + 0.45, x1: HW - 0.45, z0: -HD + 0.45, z1: HD - 0.45 };
 
   const cabinet = {
     wall: 'north',
-    rows: ROWS.map((r) => ({ zone: r.zone, y: r.y, z: -HD + CAB_LZ, pitch: PITCH })),
-    clip: { x0: -2.1, x1: 2.1 },
     visible: 4,
-    slotX: (i) => (i - 1.5) * PITCH,
-    viewSpot: new THREE.Vector3(0, 1.5, 2.5),
-    lookAt: new THREE.Vector3(0, 1.5, -3.1),
+    sections: SECS.map((sc, k) => ({
+      id: sc.id, zones: sc.zones,
+      clip: { x0: sc.x0, x1: sc.x1 },
+      slotX: (i) => sc.cx + (i - 1.5) * PITCH,
+      viewSpot: new THREE.Vector3(sc.mid, 1.25, -3.1 + 4.5),
+      lookAt: new THREE.Vector3(sc.mid, 1.2, -3.1),
+      standSpot: new THREE.Vector3(k === 0 ? -3.95 : 3.95, 0, -1.2),
+    })),
+    rows: ROWDEF.map((r) => {
+      const o = { zone: r.zone, section: r.section, y: r.y, z: -HD + CAB_LZ, pitch: PITCH };
+      if (r.rail !== undefined) o.rail = r.rail;
+      return o;
+    }),
   };
+  const dress = {
+    standSpot: new THREE.Vector3(ST.x, ST.top, ST.z),
+    radius: ST.r,
+    browse: { y: 2.5, z: 1.3, lookY: 1.1, lookZ: -3.1, panMin: cabinet.sections[0].viewSpot.x, panMax: cabinet.sections[1].viewSpot.x },
+    front: { viewSpot: new THREE.Vector3(0, 1.0, 1.3), lookAt: new THREE.Vector3(0, 0.85, ST.z) },
+  };
+  const curtain = { setOpen, get open() { return curtainK; }, z: CURT.z, x0: CURT.x0, x1: CURT.x1 };
   const mirror = {
     standSpot: new THREE.Vector3(MIR.x, 0.014, MIR.z),
     facing: -PI / 2,
@@ -613,7 +726,7 @@ export function createWardrobeRoom() {
 
   function dispose() {
     for (const g of geos) g.dispose();
-    mirrorGeo.dispose(); backGeo.dispose();
+    mirrorGeo.dispose(); backGeo.dispose(); curtainGeo.dispose(); curtainMat.dispose(); clothTex.dispose();
     mirrorMesh.dispose?.();
     for (const tx of backdropTex) tx.dispose();
     backMat.dispose();
@@ -623,6 +736,6 @@ export function createWardrobeRoom() {
 
   return {
     scene, camera, size: { w: W, d: D, h: H }, dogSpot, obstacles, walk, walls,
-    cabinet, mirror, photo, door, resize, update, dispose,
+    cabinet, dress, curtain, mirror, photo, door, resize, update, dispose,
   };
 }

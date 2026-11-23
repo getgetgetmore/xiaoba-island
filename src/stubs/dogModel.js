@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { palette } from '../core/palette.js';
 import { damp, clamp } from '../core/util.js';
-import { getGarment } from '../wardrobe/garments.js';
+import { ZONES, getGarment } from '../wardrobe/garments.js';
 
 export const DOG_ACTIONS = [
   'idle', 'walk', 'run', 'sit', 'lie', 'sleep', 'roll', 'spin', 'playbow', 'sniff', 'drink', 'pounce', 'pickup', 'shake', 'flinch',
@@ -78,7 +78,8 @@ export function createDog(ctx) {
   };
 
   // 换装：占位实现只记录穿着状态，不显示（接口同真实模型）
-  const outfit = { hat: null, top: null, acc: null, shoes: null };
+  const outfit = {};
+  for (const z of ZONES) outfit[z] = null;
   Object.defineProperty(dog, 'outfit', { enumerable: true, get: () => Object.freeze({ ...outfit }) });
   function wear(zone, id) {
     if (!(zone in outfit)) return false;

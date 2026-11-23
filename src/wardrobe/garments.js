@@ -17,43 +17,62 @@ import { buildDog, celShade, DIM, headSurf } from '../dog/model/rig.js';
 import { blob, ellipsoid, ss, weldNormals } from '../dog/model/geometry.js';
 
 // ================================================================ 目录
-export const ZONES = ['hat', 'top', 'acc', 'shoes'];
-export const ZONE_NAMES = { hat: '帽子', top: '衣服', acc: '装饰品', shoes: '鞋子' };
+export const ZONES = ['head', 'eyes', 'neck', 'body', 'back', 'feet'];
+export const ZONE_NAMES = { head: '头上', eyes: '眼睛', neck: '脖子', body: '身上', back: '背上', feet: '脚上' };
+// 目录顺序 = 默认陈列顺序（按分区，每个分区里最有代表性的在前）。id 是存档用的，不能改。
 export const GARMENTS = [
-  { id: 'hat_straw', zone: 'hat', name: '草帽', desc: '草编的宽檐小帽，系一圈红丝带，晒太阳正合适。' },
-  { id: 'hat_cap', zone: 'hat', name: '棒球帽', desc: '红白配色的棒球帽，帽檐朝前，精神十足。' },
-  { id: 'hat_beanie', zone: 'hat', name: '毛线帽', desc: '暖乎乎的针织帽，顶上一颗圆滚滚的绒球。' },
-  { id: 'hat_party', zone: 'hat', name: '生日尖帽', desc: '彩色螺旋条纹的尖顶帽，帽尖缀着小绒球。' },
-  { id: 'top_stripe', zone: 'top', name: '条纹衫', desc: '藏青和白色相间的海魂衫，清清爽爽。' },
-  { id: 'top_raincoat', zone: 'top', name: '黄雨衣', desc: '亮黄色小雨衣，兜帽垂在背后，下雨天也能出门踩水。' },
-  { id: 'top_sweater', zone: 'top', name: '红毛衣', desc: '红色粗针毛衣，高领、袖口和下摆是奶白色罗纹。' },
-  { id: 'top_overalls', zone: 'top', name: '背带裤', desc: '牛仔背带裤，两颗铜扣，胸前还有个小口袋。' },
-  { id: 'acc_scarf', zone: 'acc', name: '红围巾', desc: '毛茸茸的红围巾，一头垂在胸前，末端是白条纹和流苏。' },
-  { id: 'acc_bowtie', zone: 'acc', name: '领结', desc: '蓝白条纹的小领结，正式场合必备。' },
-  { id: 'acc_sunglasses', zone: 'acc', name: '墨镜', desc: '粉色圆框墨镜，戴上就是最酷的小狗。' },
-  { id: 'acc_hairbow', zone: 'acc', name: '蝴蝶结', desc: '粉白条纹的蝴蝶结头花，别在右耳根上。' },
-  { id: 'shoes_redboots', zone: 'shoes', name: '小红靴', desc: '红色小短靴，靴口一圈白绒毛。' },
-  { id: 'shoes_rainboots', zone: 'shoes', name: '黄雨靴', desc: '高筒黄雨靴，深色橡胶底，踩水坑专用。' },
-  { id: 'shoes_socks', zone: 'shoes', name: '条纹袜', desc: '红白条纹的长筒袜，软软的，在家里穿。' },
-  { id: 'shoes_sneakers', zone: 'shoes', name: '运动鞋', desc: '蓝白运动鞋，白色厚鞋底，跑起来更带劲。' },
-  // ---- 第二批（每个分区第 5、6 件）
-  { id: 'hat_beret', zone: 'hat', name: '贝雷帽', desc: '墨绿色的软贝雷帽，歪歪地扣在头顶，像个小画家。' },
-  { id: 'hat_cowboy', zone: 'hat', name: '牛仔帽', desc: '棕色牛仔帽，两边帽檐向上卷，系一圈深色皮带。' },
-  { id: 'top_hoodie', zone: 'top', name: '蓝卫衣', desc: '天蓝色连帽卫衣，兜帽搭在背上，胸前垂两根白抽绳。' },
-  { id: 'top_cape', zone: 'top', name: '小披风', desc: '紫色小披风，金色滚边，领口一颗金扣，威风凛凛。' },
-  { id: 'acc_garland', zone: 'acc', name: '花环', desc: '粉黄白三色小花编成的花环，挂在脖子上。' },
-  { id: 'acc_backpack', zone: 'acc', name: '小背包', desc: '绿色小背包，黄色袋盖，出门郊游背上它。' },
-  { id: 'shoes_snowboots', zone: 'shoes', name: '雪地靴', desc: '浅棕色雪地靴，靴口翻出一圈厚厚的奶白绒毛。' },
-  { id: 'shoes_rainbow', zone: 'shoes', name: '彩虹袜', desc: '七彩渐变的长筒袜，一圈一圈的彩虹。' },
+  { id: 'hat_straw', zone: 'head', name: '草帽', desc: '草编的宽檐小帽，系一圈红丝带，晒太阳正合适。' },
+  { id: 'hat_cap', zone: 'head', name: '棒球帽', desc: '红白配色的棒球帽，帽檐朝前，精神十足。' },
+  { id: 'hat_beanie', zone: 'head', name: '毛线帽', desc: '暖乎乎的针织帽，顶上一颗圆滚滚的绒球。' },
+  { id: 'hat_party', zone: 'head', name: '生日尖帽', desc: '彩色螺旋条纹的尖顶帽，帽尖缀着小绒球。' },
+  { id: 'hat_beret', zone: 'head', name: '贝雷帽', desc: '墨绿色的软贝雷帽，歪歪地扣在头顶，像个小画家。' },
+  { id: 'hat_cowboy', zone: 'head', name: '牛仔帽', desc: '棕色牛仔帽，两边帽檐向上卷，系一圈深色皮带。' },
+  { id: 'acc_hairbow', zone: 'head', name: '蝴蝶结', desc: '粉白条纹的蝴蝶结头花，别在右耳根上。' },
+  { id: 'acc_sunglasses', zone: 'eyes', name: '墨镜', desc: '粉色圆框墨镜，戴上就是最酷的小狗。' },
+  { id: 'eyes_round', zone: 'eyes', name: '圆框眼镜', desc: '细细的金色圆框眼镜，看起来很有学问。' },
+  { id: 'eyes_heart', zone: 'eyes', name: '爱心墨镜', desc: '红色爱心形状的墨镜，白色镜框，满眼都是爱。' },
+  { id: 'eyes_patch', zone: 'eyes', name: '独眼眼罩', desc: '海盗的黑眼罩，一根细带绕到脑后。' },
+  { id: 'acc_scarf', zone: 'neck', name: '红围巾', desc: '毛茸茸的红围巾，一头垂在胸前，末端是白条纹和流苏。' },
+  { id: 'acc_bowtie', zone: 'neck', name: '领结', desc: '蓝白条纹的小领结，正式场合必备。' },
+  { id: 'neck_bandana', zone: 'neck', name: '小方巾', desc: '蓝底白条的三角巾，系在脖子上，尖角垂在胸前。' },
+  { id: 'acc_garland', zone: 'neck', name: '花环', desc: '粉黄白三色小花编成的花环，挂在脖子上。' },
+  { id: 'top_stripe', zone: 'body', name: '条纹衫', desc: '藏青和白色相间的海魂衫，清清爽爽。' },
+  { id: 'top_raincoat', zone: 'body', name: '黄雨衣', desc: '亮黄色小雨衣，兜帽垂在背后，下雨天也能出门踩水。' },
+  { id: 'top_sweater', zone: 'body', name: '红毛衣', desc: '红色粗针毛衣，高领、袖口和下摆是奶白色罗纹。' },
+  { id: 'top_overalls', zone: 'body', name: '背带裤', desc: '牛仔背带裤，两颗铜扣，胸前还有个小口袋。' },
+  { id: 'top_hoodie', zone: 'body', name: '蓝卫衣', desc: '天蓝色连帽卫衣，兜帽搭在背上，胸前垂两根白抽绳。' },
+  { id: 'top_cape', zone: 'body', name: '小披风', desc: '紫色小披风，金色滚边，领口一颗金扣，威风凛凛。' },
+  { id: 'acc_backpack', zone: 'back', name: '小背包', desc: '绿色小背包，黄色袋盖，出门郊游背上它。' },
+  { id: 'back_wings', zone: 'back', name: '小翅膀', desc: '一对洁白的天使小翅膀，长在肩膀后面。' },
+  { id: 'back_butterfly', zone: 'back', name: '蝴蝶翅膀', desc: '橙蓝相间的蝴蝶翅膀，翅尖带黑边和白点。' },
+  { id: 'back_shell', zone: 'back', name: '小龟壳', desc: '圆鼓鼓的绿色龟壳，一块一块的花纹，边上一圈黄。' },
+  { id: 'shoes_redboots', zone: 'feet', name: '小红靴', desc: '红色小短靴，靴口一圈白绒毛。' },
+  { id: 'shoes_rainboots', zone: 'feet', name: '黄雨靴', desc: '高筒黄雨靴，深色橡胶底，踩水坑专用。' },
+  { id: 'shoes_socks', zone: 'feet', name: '条纹袜', desc: '红白条纹的长筒袜，软软的，在家里穿。' },
+  { id: 'shoes_sneakers', zone: 'feet', name: '运动鞋', desc: '蓝白运动鞋，白色厚鞋底，跑起来更带劲。' },
+  { id: 'shoes_snowboots', zone: 'feet', name: '雪地靴', desc: '浅棕色雪地靴，靴口翻出一圈厚厚的奶白绒毛。' },
+  { id: 'shoes_rainbow', zone: 'feet', name: '彩虹袜', desc: '七彩渐变的长筒袜，一圈一圈的彩虹。' },
 ];
-// 目录顺序 = 默认陈列顺序：每个分区先放最有代表性的 4 件，再放第二批的 2 件
-GARMENTS.sort((a, b) => ZONES.indexOf(a.zone) - ZONES.indexOf(b.zone));
 const BY_ID = new Map(GARMENTS.map((g) => [g.id, g]));
-/** 占用脖子的装饰品：穿上时隐藏默认的红项圈和铃铛 */
-const NECK = new Set(['acc_scarf', 'acc_bowtie', 'acc_garland']);
 
 export function getGarment(id) { return BY_ID.get(id) || null; }
-export function garmentUsesNeck(id) { return NECK.has(id); }
+/** neck 区 = 占脖子：穿着时隐藏默认的红项圈和铃铛 */
+export function garmentUsesNeck(id) { const g = BY_ID.get(id); return !!g && g.zone === 'neck'; }
+
+/** 带兜帽的衣服：背上有东西时兜帽压扁收到领口后面 */
+const HOODED = new Set(['top_raincoat', 'top_hoodie']);
+/**
+ * 组合穿戴的变体：同一件服饰在不同搭配下几何略有不同（缓存键 = id + 变体）。
+ *   body 区带兜帽的 + 背上有东西 → 'flat'（兜帽压扁、靠前）
+ *   back / neck 区 + 身上穿了衣服 → 'lift'（整体再往外垫一层，不被衣服吞掉）
+ */
+export function garmentVariant(id, outfit) {
+  const g = BY_ID.get(id);
+  if (!g || !outfit) return '';
+  if (g.zone === 'body') return HOODED.has(id) && outfit.back ? 'flat' : '';
+  if (g.zone === 'back' || g.zone === 'neck') return outfit.body ? 'lift' : '';
+  return '';
+}
 
 // ================================================================ 颜色
 const C = (h) => new THREE.Color(h);
@@ -704,7 +723,9 @@ const ang = (x, y) => Math.atan2(x, y) / (Math.PI * 2); // -0.5..0.5
 
 /** 兜帽：垂在背上靠近脖子的地方，开口朝后上方。外壳 + 卷边 + 内衬 */
 function addHood(W, R, outerC, liningC, rimC) {
-  const hb = hitBody(R, ['torso', 'neck'], 0, 0.5, 0.15, 0, -1, 0);
+  // 背上有东西（变体 flat）：兜帽压扁、往前收到领口后面，给背包 / 翅膀 / 龟壳让位
+  const flat = VAR === 'flat';
+  const hb = hitBody(R, ['torso', 'neck'], 0, 0.5, flat ? 0.19 : 0.15, 0, -1, 0);
   if (!hb) return;
   const outer = [], inner = [];
   for (let i = 0; i <= 5; i++) { const a = (i / 5) * (Math.PI / 2); outer.push([Math.sin(a), -Math.cos(a)]); }
@@ -712,7 +733,7 @@ function addHood(W, R, outerC, liningC, rimC) {
   const lip = [[1.0, 0.0], [1.04, 0.07], [0.95, 0.1], [0.86, 0.04], [0.86, 0.02]];
   const up = new THREE.Vector3(0, 1, 0.55).normalize().transformDirection(R.rest[R.B.body]);
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
-  const m = new THREE.Matrix4().compose(hb.p.clone().addScaledVector(hb.n, 0.05), q, new THREE.Vector3(0.12, 0.045, 0.1));
+  const m = new THREE.Matrix4().compose(hb.p.clone().addScaledVector(hb.n, flat ? 0.026 : 0.05), q, flat ? new THREE.Vector3(0.1, 0.016, 0.05) : new THREE.Vector3(0.12, 0.045, 0.1));
   const skin = { si: hb.si, sw: hb.sw };
   addPiece(W, revolve(outer, 16), { matrix: m, color: [outerC], skin });
   addPiece(W, revolve(lip, 16), { matrix: m, color: [rimC], skin });
@@ -940,7 +961,8 @@ function buildAcc(W, R, id) {
   const B = R.B;
   const neckM = R.rest[B.neck];
   // 颈部装饰的本地框架：圆环在 XZ 平面，和项圈同样的位置 / 倾角
-  const NECK_MOUNT = mul(TR(0, 0.02, 0.01), ROT(0.38, 0, 0));
+  // 身上穿了衣服（变体 lift）：整圈放大一点，套在衣服领口外面
+  const NECK_MOUNT = mul(TR(0, 0.02, 0.01), ROT(0.38, 0, 0), VAR === 'lift' ? SC(1.1, 1.1, 1.1) : M4());
   if (id === 'acc_scarf') {
     const M = neckM.clone().multiply(NECK_MOUNT);
     const ring = noUV(new THREE.TorusGeometry(0.14, 0.036, 12, 40));
@@ -1039,6 +1061,44 @@ function buildAcc(W, R, id) {
       color: (p, o) => (Math.abs(p.x) < 0.013 && p.y > -0.014 ? paint(o, K.pinkDeep) : paint(o, K.pink, K.white, (p.x - p.y) / 0.022)),
       skin: { bone: iE },
     });
+  } else if (id === 'neck_bandana') {
+    // 小方巾：一圈布带 + 前面垂下的三角（上沿跟着脖子，尖角跟着胸口）
+    const M = neckM.clone().multiply(NECK_MOUNT);
+    const band = noUV(new THREE.TorusGeometry(0.132, 0.014, 6, 36));
+    band.scale(1, 1.07, 1.9);
+    const bandPaint = (s) => (o) => paint(o, K.sky, K.white, s);
+    addPiece(W, band, { matrix: M.clone().multiply(ROT(Math.PI / 2, 0, 0)), color: (p, o) => bandPaint(Math.atan2(p.y, p.x) / (Math.PI * 2) * 40)(o), skin: { bone: B.neck } });
+    // 三角：在颈骨空间里直接定点（上沿取圈上的点，尖角在胸前）
+    const lift = VAR === 'lift' ? 1.1 : 1;
+    const NU = 14, NV = 7;
+    const top = (u) => new THREE.Vector3(Math.sin(u * 1.15) * 0.145, 0.006, Math.cos(u * 1.15) * 0.145 * 1.07).applyMatrix4(NECK_MOUNT);
+    const apex = new THREE.Vector3(0, -0.105, 0.19 * lift);
+    const pos = [], idx = [];
+    for (let j = 0; j <= NV; j++) {
+      const v = j / NV;
+      for (let i = 0; i <= NU; i++) {
+        const u = (i / NU) * 2 - 1;
+        const p = top(u * (1 - v)).lerp(apex, v);
+        p.z += 0.012 * Math.sin(Math.PI * v) * (1 - Math.abs(u)); // 中间微微鼓出来
+        pos.push(p.x, p.y, p.z);
+      }
+    }
+    for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+      const a = j * (NU + 1) + i, b = a + 1, c = a + NU + 1, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    const tri = new THREE.BufferGeometry();
+    tri.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    tri.setIndex(idx);
+    tri.computeVertexNormals();
+    const iC = B.chest, iN = B.neck;
+    addPiece(W, tri, {
+      matrix: neckM,
+      color: (p, o) => paint(o, K.sky, K.white, (p.x * 0.7 - p.y) / 0.022),
+      skin: (p) => { const w = ss(-0.01, -0.09, p.y); return { si: [iN, iC, 0, 0], sw: [1 - w, w, 0, 0] }; },
+    });
+    // 结（右侧）
+    addPiece(W, pillow(0.022, 0.018, 0.016, 10, 8), { matrix: M.clone().multiply(TR(-0.1, 0.0, 0.11)), color: [K.skyDeep], skin: { bone: B.neck } });
   } else if (id === 'acc_garland') {
     // 花环：一圈绿藤 + 十朵五瓣小花（粉 / 黄 / 白），挂在颈骨上（和项圈同样的位置）
     const M = neckM.clone().multiply(NECK_MOUNT);
@@ -1080,7 +1140,7 @@ function buildAcc(W, R, id) {
       const yAxis = fwd.addScaledVector(zAxis, -fwd.dot(zAxis)).normalize();
       const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis);
       const basis = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
-      basis.setPosition(h.p.clone().addScaledVector(zAxis, 0.064));
+      basis.setPosition(h.p.clone().addScaledVector(zAxis, 0.064 + LIFT()));
       const box = (sx, sy, sz, e = 0.55) => blob(12, 8, (v, o) => {
         const f = (t) => Math.sign(t) * Math.pow(Math.abs(t), e);
         o.set(f(v.x) * sx, f(v.y) * sy, f(v.z) * sz);
@@ -1105,10 +1165,207 @@ function buildAcc(W, R, id) {
           const a = ((v - 0.45) / 0.55) * (Math.PI / 2) * 0.95;
           return [x, Math.cos(a) * 0.6, 0.16 + Math.sin(a) * 0.6, 0, -Math.cos(a), -Math.sin(a)];
         },
-        off: 0.026,
+        off: 0.026 + LIFT(),
         color: (u, v, o) => paint(o, K.packDark),
       });
     }
+  }
+}
+
+// ---------------------------------------------------------------- 眼睛区
+/** 两只眼睛前的镜框位置（头骨空间）：中心 + 朝向 */
+function eyeFrame(s) {
+  const n = new THREE.Vector3();
+  const x = 0.084 * s, y = 0.034;
+  const z = headSurf(x, y, n);
+  n.lerp(new THREE.Vector3(0, 0, 1), 0.45).normalize();
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z).addScaledVector(n, 0.026), q, new THREE.Vector3(1, 1, 1));
+}
+function heartShape() {
+  const s = new THREE.Shape();
+  s.moveTo(0, -0.5);
+  s.bezierCurveTo(-0.15, -0.32, -0.62, -0.05, -0.56, 0.26);
+  s.bezierCurveTo(-0.5, 0.58, -0.1, 0.62, 0, 0.3);
+  s.bezierCurveTo(0.1, 0.62, 0.5, 0.58, 0.56, 0.26);
+  s.bezierCurveTo(0.62, -0.05, 0.15, -0.32, 0, -0.5);
+  return s;
+}
+function buildEyes(W, R, id) {
+  const iHd = R.B.head;
+  const M = R.rest[iHd];
+  const sk = { bone: iHd };
+  const put = (geo, color, L = M4()) => addPiece(W, geo, { matrix: M.clone().multiply(L), color, skin: sk });
+  const bridge = (col, r = 0.006) => {
+    const zc = headSurf(0, 0.06) + 0.022;
+    put(noUV(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.045, 0.05, zc - 0.012), new THREE.Vector3(0, 0.062, zc + 0.002), new THREE.Vector3(0.045, 0.05, zc - 0.012),
+    ]), 8, r, 5, false)), [col]);
+  };
+  const arms = (col, r = 0.005) => {
+    for (const s of [1, -1]) {
+      const arm = noUV(new THREE.CylinderGeometry(r, r, 0.09, 5, 1));
+      arm.rotateX(Math.PI / 2);
+      put(arm, [col], new THREE.Matrix4().compose(new THREE.Vector3(0.128 * s, 0.05, 0.12), new THREE.Quaternion().setFromEuler(new THREE.Euler(0.05, 0.42 * s, 0)), new THREE.Vector3(1, 1, 1)));
+    }
+  };
+  if (id === 'eyes_round') {
+    // 只有细金框（没有镜片，眼睛看得见）
+    for (const s of [1, -1]) put(noUV(new THREE.TorusGeometry(0.041, 0.0068, 6, 26)), [K.leather], eyeFrame(s));
+    bridge(K.leather, 0.0055);
+    arms(K.leather, 0.0045);
+  } else if (id === 'eyes_heart') {
+    const ext = (k, depth) => {
+      const g = new THREE.ExtrudeGeometry(heartShape(), { depth: 1, bevelEnabled: false, curveSegments: 5 });
+      noUV(g);
+      g.translate(0, 0, -0.5);
+      g.scale(k, k, depth);
+      g.computeVertexNormals();
+      return g;
+    };
+    for (const s of [1, -1]) {
+      const L = eyeFrame(s);
+      put(ext(0.092, 0.006), (p, o) => paint(o, K.red, K.capRed.clone().lerp(K.white, 0.45), (p.x * s * 0.6 + p.y) / 0.05 + 0.2), L.clone().multiply(TR(0, 0.004, 0.003)));
+      put(ext(0.108, 0.005), [K.white], L.clone().multiply(TR(0, 0.004, -0.002)));
+    }
+    bridge(K.white);
+    arms(K.white);
+  } else if (id === 'eyes_patch') {
+    // 黑眼罩盖住右眼（默认取景看得到的一侧）+ 一根绕过脑后的细带（在耳朵下面）
+    const L = eyeFrame(-1);
+    const patch = noUV(new THREE.CylinderGeometry(0.042, 0.042, 0.008, 18, 1));
+    patch.rotateX(Math.PI / 2);
+    patch.scale(1.05, 0.9, 1);
+    put(patch, (p, o) => paint(o, K.lens, K.lens), L.clone().multiply(TR(0, 0, -0.008)));
+    const SK = { cy: 0.05, cz: 0.02, rx: 0.205, ry: 0.178, rz: 0.185 };
+    const pts = [];
+    const th0 = Math.atan2(-0.084, 0.2); // 右眼方向
+    for (let k = 0; k <= 28; k++) {
+      const th = th0 + 0.36 + (k / 28) * (Math.PI * 2 - 0.72);
+      const y = 0.095 + 0.035 * Math.sin(th);
+      const q = 1 - ((y - SK.cy) / SK.ry) ** 2;
+      const t = Math.sqrt(Math.max(0, q)) / Math.hypot(Math.sin(th) / SK.rx, Math.cos(th) / SK.rz) * 1.045;
+      pts.push(new THREE.Vector3(Math.sin(th) * t, y, SK.cz + Math.cos(th) * t));
+    }
+    put(noUV(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 40, 0.0038, 4, false)), [K.lens]);
+  }
+}
+
+// ---------------------------------------------------------------- 背上
+/** 静止姿态里离点 p（网格空间）最近的毛皮顶点的蒙皮权重 */
+const NEAR_CACHE = new Map();
+function nearestSkin(R, parts, p) {
+  const key = parts.join(',');
+  let list = NEAR_CACHE.get(key);
+  if (!list) {
+    const want = new Set(parts.map((n) => R.partNames.indexOf(n)));
+    list = [];
+    for (let i = 0; i < R.count; i++) if (want.has(R.partOf[i])) list.push(i);
+    NEAR_CACHE.set(key, list);
+  }
+  let best = -1, bd = 1e9;
+  for (const i of list) {
+    const dx = R.pos[i * 3] - p.x, dy = R.pos[i * 3 + 1] - p.y, dz = R.pos[i * 3 + 2] - p.z;
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d < bd) { bd = d; best = i; }
+  }
+  return { si: Array.from(R.si.subarray(best * 4, best * 4 + 4)), sw: Array.from(R.sw.subarray(best * 4, best * 4 + 4)) };
+}
+/** 背上一点的局部框架：原点 = 毛皮命中点沿法线外推 lift，z = 法线，y = 身体前方（切向） */
+function backFrame(R, x, z, lift) {
+  const h = hitBody(R, ['torso', 'neck'], x, 0.6, z, 0, -1, 0);
+  const zA = h.n.clone();
+  const fwd = new THREE.Vector3(0, 0, 1).transformDirection(R.rest[R.B.body]);
+  const yA = fwd.addScaledVector(zA, -fwd.dot(zA)).normalize();
+  const xA = new THREE.Vector3().crossVectors(yA, zA);
+  const m = new THREE.Matrix4().makeBasis(xA, yA, zA);
+  m.setPosition(h.p.clone().addScaledVector(zA, lift));
+  return { m, h };
+}
+/** 平板翅膀：outline(u ∈ 0..1 沿翼展) → [上缘, 下缘]；本地 x = 翼展、y = 高、z = 厚 */
+function wingGeo(span, outline, thick = 0.008, ws = 16, hs = 10) {
+  return blob(ws, hs, (v, o) => {
+    const u = (v.x + 1) / 2;
+    const [top, bot] = outline(u);
+    const y = v.y > 0 ? v.y * top : v.y * bot;
+    o.set(u * span, y, v.z * thick * (1 - 0.6 * u));
+  });
+}
+function buildBack(W, R, id) {
+  const B = R.B;
+  const body = R.rest[B.body];
+  const lift = LIFT();
+  if (id === 'back_wings') {
+    // 一对白色天使小翅膀：长在肩胛后面，向外上方张开、略向后掠；羽毛一排排（条纹）
+    const g = wingGeo(0.25, (u) => [0.03 + 0.075 * Math.sin(Math.PI * Math.min(1, u * 1.05)) * (1 - 0.3 * u), 0.025 + 0.075 * Math.sin(Math.PI * u) * (0.75 + 0.25 * Math.abs(Math.sin(u * Math.PI * 4)))], 0.014);
+    for (const s of [1, -1]) {
+      const { m, h } = backFrame(R, 0.06 * s, 0.07, 0.035 + lift);
+      // 本地：x 翼展（往外上、后掠），y 朝上
+      const span = new THREE.Vector3(s * 0.78, 0.5, -0.38).normalize().transformDirection(body);
+      const up0 = new THREE.Vector3(0, 1, 0.25).transformDirection(body);
+      const upA = up0.addScaledVector(span, -up0.dot(span)).normalize();
+      const thA = new THREE.Vector3().crossVectors(span, upA);
+      const L = new THREE.Matrix4().makeBasis(span, upA, thA);
+      L.setPosition(new THREE.Vector3().setFromMatrixPosition(m));
+      addPiece(W, g, {
+        matrix: L,
+        color: (p, o) => paint(o, K.flowerWhite, K.hoodieLining, p.x / 0.04 + (p.y < 0 ? 0.5 : 0)),
+        skin: { si: h.si, sw: h.sw },
+      });
+    }
+  } else if (id === 'back_butterfly') {
+    // 蝴蝶翅膀：每边一大一小两片，竖在背上呈 V 形；橙 / 蓝，翅缘黑，翅尖白点
+    const fore = wingGeo(0.24, (u) => [0.045 + 0.075 * Math.sin(Math.PI * Math.min(1, u * 1.1)), 0.018 + 0.045 * Math.sin(Math.PI * u)], 0.005, 14, 8);
+    const hind = wingGeo(0.17, (u) => [0.03 + 0.05 * Math.sin(Math.PI * u), 0.03 + 0.06 * Math.sin(Math.PI * Math.min(1, u * 1.15))], 0.004, 12, 8);
+    const { m, h } = backFrame(R, 0, -0.01, 0.03 + lift);
+    const base = new THREE.Vector3().setFromMatrixPosition(m);
+    for (const s of [1, -1]) {
+      for (const [geo, dir, col] of [[fore, new THREE.Vector3(s * 0.42, 0.85, 0.32), K.mustard], [hind, new THREE.Vector3(s * 0.5, 0.6, -0.55), K.sky]]) {
+        const span = dir.clone().normalize().transformDirection(body);
+        const side = new THREE.Vector3(s, 0, 0).transformDirection(body);
+        const thA = side.addScaledVector(span, -side.dot(span)).normalize();
+        const upA = new THREE.Vector3().crossVectors(thA, span);
+        const L = new THREE.Matrix4().makeBasis(span, upA, thA);
+        L.setPosition(base);
+        const len = geo === fore ? 0.24 : 0.17;
+        addPiece(W, geo, {
+          matrix: L,
+          color: (p, o) => {
+            const u = p.x / len;
+            const edge = u > 0.82 || Math.abs(p.y) > (geo === fore ? 0.068 : 0.058) * Math.sin(Math.PI * Math.min(1, u * 1.05)) + 0.006;
+            if (u > 0.8 && Math.abs(Math.sin(p.y * 110)) < 0.35) paint(o, K.white);
+            else paint(o, edge ? K.lens : col, edge ? K.lens : K.lens, u * 0 + 0);
+          },
+          skin: { si: h.si, sw: h.sw },
+        });
+      }
+    }
+    // 中间的小身体
+    addPiece(W, ellipsoid(0, 0, 0, 0.012, 0.012, 0.05, { ws: 8, hs: 6 }), { matrix: m.clone().multiply(TR(0, 0, 0.01)), color: [K.lens], skin: { si: h.si, sw: h.sw } });
+  } else if (id === 'back_shell') {
+    // 小龟壳：盖在背上的扁穹顶（避开尾巴），一块块六边形甲片（顶点色），边上一圈黄；每个顶点取最近一块皮肤的蒙皮，跟着身体弯
+    const RX = 0.235 + lift, RZ = 0.19 + lift, RY = 0.19 + lift, CY = 0.04, CZ = -0.02;
+    const dome = blob(28, 14, (v, o) => {
+      const y = Math.max(v.y, -0.08);
+      const k = Math.sqrt(Math.max(0, 1 - y * y)) / Math.max(1e-6, Math.hypot(v.x, v.z));
+      const bulge = 1 + 0.03 * Math.sin(v.x * 7) * Math.sin(v.z * 6);
+      o.set(v.x * k * RX * bulge, CY + y * RY, CZ + v.z * k * RZ * bulge);
+    });
+    const centers = [[0, 0.03]];
+    for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; centers.push([Math.sin(a) * 0.12, CZ + Math.cos(a) * 0.12]); }
+    const pal = [K.leaf, K.leafDark.clone().lerp(K.leaf, 0.35)];
+    const pp = new THREE.Vector3();
+    addPiece(W, dome, {
+      matrix: body,
+      color: (p, o) => {
+        if (p.y < CY + 0.02) { paint(o, K.mustard); return; }
+        let d1 = 1e9, d2 = 1e9, bi = 0;
+        centers.forEach(([cx, cz], i) => { const d = Math.hypot(p.x - cx, p.z - cz); if (d < d1) { d2 = d1; d1 = d; bi = i; } else if (d < d2) d2 = d; });
+        if (d2 - d1 < 0.016) paint(o, K.leafDark.clone().multiplyScalar(0.7));
+        else paint(o, pal[bi === 0 ? 1 : bi % 2]);
+      },
+      skin: (p) => nearestSkin(R, ['torso', 'butt', 'neck'], pp.copy(p).applyMatrix4(body)),
+    });
   }
 }
 
@@ -1116,28 +1373,37 @@ function buildAcc(W, R, id) {
 const WORN = new Map();
 const DISPLAY = new Map();
 
-function buildWorn(id, rig) {
-  const g = BY_ID.get(id);
+/** 当前正在建的变体（'' | 'flat' | 'lift'），各 build 函数读取 */
+let VAR = '';
+/** 背上的东西在 lift 变体下再往外垫的距离 */
+const LIFT = () => (VAR === 'lift' ? 0.014 : 0);
+function buildWorn(id, rig, variant) {
   const R = getRest(rig);
   const W = new Build();
-  if (g.zone === 'top') buildTop(W, R, id);
-  else if (g.zone === 'shoes') buildShoes(W, R, id);
-  else if (g.zone === 'hat') hatPieces(W, R, id);
-  else buildAcc(W, R, id);
+  VAR = variant || '';
+  try {
+    if (id.startsWith('hat_')) hatPieces(W, R, id);
+    else if (id.startsWith('top_')) buildTop(W, R, id);
+    else if (id.startsWith('shoes_')) buildShoes(W, R, id);
+    else if (id.startsWith('eyes_')) buildEyes(W, R, id);
+    else if (id.startsWith('back_')) buildBack(W, R, id);
+    else buildAcc(W, R, id);
+  } finally { VAR = ''; }
   return W;
 }
 
-function wornBuild(id, rig) {
-  let e = WORN.get(id);
-  if (!e) { const W = buildWorn(id, rig); e = { W, geo: W.geometry(true) }; WORN.set(id, e); }
+function wornBuild(id, rig, variant = '') {
+  const key = id + '|' + variant;
+  let e = WORN.get(key);
+  if (!e) { const W = buildWorn(id, rig, variant); e = { W, geo: W.geometry(true) }; WORN.set(key, e); }
   return e;
 }
 
-/** 穿在身上的网格（SkinnedMesh，绑定 rig 的骨架）。由 dogModel 的 wear 调用。 */
-export function createWornGarment(id, rig) {
+/** 穿在身上的网格（SkinnedMesh，绑定 rig 的骨架）。由 dogModel 的 wear 调用；variant 见 garmentVariant。 */
+export function createWornGarment(id, rig, variant = '') {
   const g = BY_ID.get(id);
   if (!g) return null;
-  const { geo } = wornBuild(id, rig);
+  const { geo } = wornBuild(id, rig, variant);
   const m = new THREE.SkinnedMesh(geo, garmentMaterial());
   m.name = 'garment:' + id;
   m.castShadow = true;
@@ -1190,9 +1456,9 @@ function buildDisplay(id) {
   const mats = [];
   const v = new THREE.Vector3(), n = new THREE.Vector3(), m3 = new THREE.Matrix3();
   // 每个顶点按 tag 选陈列变换（静止网格空间 → 陈列空间）
-  if (g.zone === 'top' || id === 'acc_backpack') {
+  if (g.zone === 'body' || g.zone === 'back') {
     mats[0] = SIDE_VIEW.clone().multiply(R.inv[R.B.body]);
-  } else if (g.zone === 'shoes') {
+  } else if (g.zone === 'feet') {
     // 四只排成一排：左右成对，前脚一对在前排、后脚一对在后排稍错开
     const place = [[0.07, 0.06], [-0.07, 0.06], [0.07, -0.08], [-0.07, -0.08]];
     for (let li = 0; li < 4; li++) {
@@ -1201,11 +1467,11 @@ function buildDisplay(id) {
       const off = li < 2 ? 0.105 : -0.105;
       mats[li] = mul(TR(place[li][0] * 1.0 + off, tot + 0.03, place[li][1] * 0.25), ROT(0, (li % 2 ? 1 : -1) * 0.12, 0)).multiply(R.inv[R.B[L + 'u']]);
     }
-  } else if (g.zone === 'hat') {
+  } else if (id.startsWith('hat_')) {
     mats[0] = HAT_MOUNT.clone().invert().multiply(R.inv[R.B.head]);
   } else if (id === 'acc_hairbow') {
     mats[0] = R.inv[R.B.earR].clone();
-  } else if (id === 'acc_sunglasses') {
+  } else if (g.zone === 'eyes') {
     mats[0] = R.inv[R.B.head].clone();
   } else {
     // 颈部饰品：保持戴在脖子上的倾角，侧前方朝 +Z
@@ -1227,7 +1493,7 @@ function buildDisplay(id) {
   geo.setAttribute('stripe', new THREE.Float32BufferAttribute(W.str, 1));
   geo.setIndex(W.idx.slice());
   let out = geo;
-  if (g.zone === 'top') {
+  if (g.zone === 'body') {
     const H = new Build();
     addClips(H, geo);
     out = mergeGeos([geo, H.geometry(false)]);
