@@ -57,9 +57,11 @@ const SKULL = { c: [0, 0.05, 0.02], r: [0.205, 0.178, 0.185] };
 const CHEEK = { c: [0.088, -0.036, 0.083], r: [0.116, 0.094, 0.102] };
 const MUZZLE = { c: [0, -0.022, 0.148], r: [0.088, 0.057, 0.092] };
 const HEAD_ELLS = [SKULL, CHEEK, { c: [-CHEEK.c[0], CHEEK.c[1], CHEEK.c[2]], r: CHEEK.r }, MUZZLE];
+/** 头部形体（头骨骼空间，只读）：给服饰（帽子 / 墨镜）找贴合位置用 */
+export const HEAD_SHAPE = { SKULL, CHEEK, MUZZLE };
 
 /** 头部表面前向 z（取各椭球最大值） */
-function headSurf(x, y, outN) {
+export function headSurf(x, y, outN) {
   let best = -1e9, bi = -1;
   for (let i = 0; i < HEAD_ELLS.length; i++) {
     const e = HEAD_ELLS[i];
@@ -159,8 +161,17 @@ export function buildDog() {
   root.updateMatrixWorld(true);
   const rest = bones.map((b) => b.matrixWorld.clone());
   const sb = new SkinBuilder(rest);
+  // 部位标记：记下毛皮几何里每个部位占的顶点区间（服饰按部位从毛皮上取三角形做贴身衣物；不影响毛皮本身）
+  const parts = {};
+  let segName = null, segStart = 0;
+  const seg = (name) => {
+    const n = sb.pos.length / 3;
+    if (segName && n > segStart) (parts[segName] || (parts[segName] = [])).push([segStart, n]);
+    segName = name; segStart = n;
+  };
 
   // ---------------- 躯干（定义在 body 空间，蒙皮到 hips/chest/belly）
+  seg('torso');
   const torso = blob(56, 36, (v, o) => {
     const t = v.y; // -1 臀 .. +1 胸
     const r0 = Math.sqrt(Math.max(1e-9, 1 - t * t));
@@ -192,6 +203,7 @@ export function buildDog() {
   });
 
   // ---------------- 屁股：左右两瓣圆鼓鼓的屁股蛋，中间一道沟（挂在 hips 上，跟着扭）
+  seg('butt');
   for (const s of [1, -1]) {
     const bg = ellipsoid(s * 0.096, -0.04, -0.142, 0.118, 0.128, 0.112, { ws: 24, hs: 18, fur: { amp: 0.02, tuft: 0.02, freq: 3, seed: s > 0 ? 51 : 52 } });
     sb.add(bg, {
@@ -207,6 +219,7 @@ export function buildDog() {
     o.set(v.x * 0.122 * f, 0.035 + v.y * 0.13, -0.005 + v.z * 0.12 * f);
   });
   const iN = B.neck, iHd = B.head;
+  seg('neck');
   sb.add(neckGeo, {
     bone: B.neck,
     color: (p, out) => {
@@ -224,6 +237,7 @@ export function buildDog() {
 
   // ---------------- 头（head 空间，刚性）
   const hs = (geo) => sb.add(geo, { bone: iHd, color: headColor });
+  seg('head');
   hs(ellipsoid(...SKULL.c, ...SKULL.r, { ws: 34, hs: 24, fur: { amp: 0.03, tuft: 0.03, freq: 3.2, seed: 11 } }));
   for (const s of [1, -1]) {
     // 鼓鼓的脸颊：外下缘有明显的毛簇
@@ -268,6 +282,7 @@ export function buildDog() {
 
   // ---------------- 耳朵（ear 空间，刚性）：圆润三角、内耳奶白、前面微凹
   for (const [s, iE] of [[1, B.earL], [-1, B.earR]]) {
+    seg(s > 0 ? 'earL' : 'earR');
     const eg = blob(20, 16, (v, o) => {
       const h = (v.y + 1) / 2;
       const r0 = Math.sqrt(Math.max(1e-9, 1 - v.y * v.y));
@@ -293,6 +308,7 @@ export function buildDog() {
   }
 
   // ---------------- 下颌（jaw 空间）
+  seg('jaw');
   sb.add(ellipsoid(0, -0.014, 0.066, 0.062, 0.03, 0.084, { ws: 20, hs: 12, fur: { amp: 0.02, tuft: 0.05, freq: 3, seed: 31 } }), {
     bone: B.jaw,
     color: (p, out) => (p.y > 0.002 && p.z > -0.005 ? mix3(out, COL.mouthPink, COL.mouthDark, ss(0.11, 0.0, p.z) * 0.6) : out.copy(COL.cream)),
@@ -319,6 +335,7 @@ export function buildDog() {
       o.set(v.x * k * r * f, y, v.z * k * r * f - bz * (v.z < 0 ? 1 : -1) * 0.5);
     });
     const par = L.front ? DIM.CHEST : DIM.HIPS;
+    seg('leg' + L.name);
     const colorFn = (p, out) => {
       // 只留“白袜子”和后腿后侧的奶白裤子，边界干脆（原先内侧的大片渐变奶白在受光下像一块块灰斑）
       const sock = ss(-tot + 0.075, -tot + 0.06, p.y);
@@ -353,6 +370,7 @@ export function buildDog() {
       o.set(v.x * 0.045 * f * toes, -0.006 + v.y * 0.034 * (v.y < 0 ? 0.72 : 1), 0.014 + v.z * 0.054 * f * toes);
     });
     pawGeo.translate(0, -tot, 0);
+    seg('paw' + L.name);
     sb.add(pawGeo, {
       bone: iU,
       color: COL.cream,
@@ -379,6 +397,7 @@ export function buildDog() {
       o.set(v.x * k * r * f, y0 + h * len, v.z * k * r * f * 0.92);
     });
     const tIdx = tail.map((b) => B[b.name]);
+    seg('tail');
     sb.add(tg, {
       bone: tIdx[0],
       color: (p, out) => {
@@ -397,52 +416,14 @@ export function buildDog() {
       },
     });
   }
+  seg(null);
 
   // ---------------- 材质
   // 毛皮：手绘平涂。不要连续的受光渐变和高光（那是“黏土/塑料材质”的观感来源），
   // 而是“亮面一块色、暗面一块色”，交界是带一点笔触抖动的硬边；暗面偏冷，亮面保持固有色。
   // 光色仍来自场景（昼夜、晚霞、雨天会跟着变），只是把明暗压成两个色阶。
   const furMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-  furMat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('void main() {', `varying vec3 vRestPos;
-void main() {
-  vRestPos = position;`);
-    sh.fragmentShader = sh.fragmentShader
-      .replace('void main() {', `varying vec3 vRestPos;
-${PAINT_NOISE_GLSL}
-void main() {
-  float dabN = 0.5;`)
-      .replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-        {
-          // 颜料块：把静止姿态坐标量化成小格再取噪声，得到一小块一小块深浅不一的色块（钉在身上，不随动画游动）
-          vec3 cell = floor(vRestPos * 24.0) / 24.0;
-          dabN = pNoise(cell * 8.0) * 0.6 + pNoise(vRestPos * 6.0 + 3.1) * 0.4;
-          diffuseColor.rgb *= 1.0 + (smoothstep(0.3, 0.7, dabN) - 0.5) * 0.13;
-        }`,
-      )
-      .replace(
-        '#include <opaque_fragment>',
-        `{
-          vec3 alb = diffuseColor.rgb;
-          const vec3 LW = vec3(0.3, 0.5, 0.2);
-          #if NUM_DIR_LIGHTS > 0
-            vec3 lc = directionalLights[0].color;
-          #else
-            vec3 lc = vec3(1.0);
-          #endif
-          float full = max(dot(alb * lc, LW) * RECIPROCAL_PI, 1e-4);
-          float nl = clamp(dot(reflectedLight.directDiffuse, LW) / full, 0.0, 1.5); // ≈ N·L × 阴影
-          float jit = (dabN - 0.5) * 0.07;
-          float lit = smoothstep(0.1 + jit, 0.15 + jit, nl);
-          // 亮面 = 环境光 + 固定比例的主光；暗面 = 亮面乘一个偏紫的暗部色（像水粉里叠一层阴影色），明暗比固定，不会出现死灰的暗部
-          vec3 litCol = reflectedLight.indirectDiffuse + alb * lc * RECIPROCAL_PI * 0.55;
-          outgoingLight = litCol * mix(vec3(0.7, 0.64, 0.74), vec3(1.0), lit) + totalEmissiveRadiance;
-        }
-        #include <opaque_fragment>`,
-      );
-  };
+  furMat.onBeforeCompile = celShade;
   furMat.customProgramCacheKey = () => 'dogFurCel';
 
   const geo = sb.build();
@@ -545,7 +526,9 @@ void main() {
   return {
     root, mesh, meshes, bones, B, skeleton,
     body, hips, chest, belly, neck, head, jaw, earL, earR, legs, tail,
-    eyes, tongue, bellPivot, mouthAnchor,
+    eyes, tongue, bellPivot, mouthAnchor, collar, bell,
+    /** 毛皮几何里各部位的顶点区间 { torso, butt, neck, head, earL, earR, jaw, legFL.., pawFL.., tail: [[start, end), ...] } */
+    parts,
     materials: [furMat, eyeMat, tongueMat, collarMat, bellMat],
   };
 }
@@ -565,4 +548,49 @@ function paintLocalRest(mat, opts, key) {
   };
   mat.customProgramCacheKey = () => key;
   mat.needsUpdate = true;
+}
+
+/**
+ * 毛皮的手绘平涂着色（onBeforeCompile 用）。服饰材质也复用它，保证和小狗在同一套光照下明暗一致。
+ * 要求材质开 vertexColors。
+ */
+export function celShade(sh) {
+    sh.vertexShader = sh.vertexShader.replace('void main() {', `varying vec3 vRestPos;
+void main() {
+  vRestPos = position;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', `varying vec3 vRestPos;
+${PAINT_NOISE_GLSL}
+void main() {
+  float dabN = 0.5;`)
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        {
+          // 颜料块：把静止姿态坐标量化成小格再取噪声，得到一小块一小块深浅不一的色块（钉在身上，不随动画游动）
+          vec3 cell = floor(vRestPos * 24.0) / 24.0;
+          dabN = pNoise(cell * 8.0) * 0.6 + pNoise(vRestPos * 6.0 + 3.1) * 0.4;
+          diffuseColor.rgb *= 1.0 + (smoothstep(0.3, 0.7, dabN) - 0.5) * 0.13;
+        }`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `{
+          vec3 alb = diffuseColor.rgb;
+          const vec3 LW = vec3(0.3, 0.5, 0.2);
+          #if NUM_DIR_LIGHTS > 0
+            vec3 lc = directionalLights[0].color;
+          #else
+            vec3 lc = vec3(1.0);
+          #endif
+          float full = max(dot(alb * lc, LW) * RECIPROCAL_PI, 1e-4);
+          float nl = clamp(dot(reflectedLight.directDiffuse, LW) / full, 0.0, 1.5); // ≈ N·L × 阴影
+          float jit = (dabN - 0.5) * 0.07;
+          float lit = smoothstep(0.1 + jit, 0.15 + jit, nl);
+          // 亮面 = 环境光 + 固定比例的主光；暗面 = 亮面乘一个偏紫的暗部色（像水粉里叠一层阴影色），明暗比固定，不会出现死灰的暗部
+          vec3 litCol = reflectedLight.indirectDiffuse + alb * lc * RECIPROCAL_PI * 0.55;
+          outgoingLight = litCol * mix(vec3(0.7, 0.64, 0.74), vec3(1.0), lit) + totalEmissiveRadiance;
+        }
+        #include <opaque_fragment>`,
+      );
 }

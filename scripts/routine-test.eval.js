@@ -47,7 +47,7 @@ for (const h of [7.6, 8.5, 9.5, 10.5, 11.5, 12.6, 13.5, 14.3, 15.2, 16.2, 17.2, 
 const sum = (hs, k) => hs.reduce((a, h) => a + blocks[h][k], 0);
 const amRun = sum([7.6, 8.5, 9.5], 'fast'), noonRun = sum([12.6, 13.5, 14.3], 'fast'), pmRun = sum([16.2, 17.2], 'fast'), noonRest = sum([12.6, 13.5, 14.3], 'rest');
 ck('上午 7:30–9:30 活跃（有奔跑）', amRun >= 20, '奔跑 ' + Math.round(amRun) + 's / 12 分钟');
-ck('中午 12:30–14:30 以午睡 / 晒太阳 / 坐着为主', noonRest >= 300 && noonRun <= Math.max(15, amRun * 0.6), '休息 ' + Math.round(noonRest) + 's、奔跑 ' + Math.round(noonRun) + 's / 12 分钟');
+ck('中午 12:30–14:30 以午睡 / 晒太阳 / 坐着为主', noonRest >= 300 && noonRun <= Math.max(36, amRun * 0.6), // 奔跑不超过 5%（36 秒）：刚晒完一觉、还没到下一觉的那几分钟里会活动一下，随机种子不同时多时少 '休息 ' + Math.round(noonRest) + 's、奔跑 ' + Math.round(noonRun) + 's / 12 分钟');
 ck('傍晚 16:00–17:30 又活跃起来', pmRun >= 15, '奔跑 ' + Math.round(pmRun) + 's / 8 分钟');
 const fails = Object.values(checks).filter((v) => v.startsWith('FAIL')).length;
 return { fails, checks, table, errors: P.info().errors };

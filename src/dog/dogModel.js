@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { buildDog, DIM } from './model/rig.js';
 import { ACTIONS, ONE_SHOT, DOG_ACTIONS, I, LEG, GX, GY, GZ, LX, LY, LZ, GW, CURL, N } from './model/actions.js';
+import { ZONES, getGarment, garmentUsesNeck, createWornGarment } from '../wardrobe/garments.js';
 
 export { DOG_ACTIONS };
 
@@ -94,9 +95,46 @@ export function createDog(ctx) {
     lookAt,
     setCarrying,
     update,
+    wear,
     /** 调试：内部结构 */
     rig,
   };
+
+  // ---------------------------------------------------------------- 换装（服饰按需创建；不穿时和原来完全一样）
+  const worn = { hat: null, top: null, acc: null, shoes: null }; // 每个分区：{ id, mesh } | null
+  /** 只读：当前穿着 { hat, top, acc, shoes }（id 或 null） */
+  Object.defineProperty(dog, 'outfit', {
+    enumerable: true,
+    get: () => Object.freeze({
+      hat: worn.hat ? worn.hat.id : null, top: worn.top ? worn.top.id : null,
+      acc: worn.acc ? worn.acc.id : null, shoes: worn.shoes ? worn.shoes.id : null,
+    }),
+  });
+  /** 换上 / 脱下（id 传 null）某个分区的服饰；同一分区同时只穿一件。id 不存在或不属于这个分区返回 false */
+  function wear(zone, id) {
+    if (!ZONES.includes(zone)) return false;
+    if (id !== null && id !== undefined) {
+      const g = getGarment(id);
+      if (!g || g.zone !== zone) return false;
+      if (worn[zone] && worn[zone].id === id) return true;
+      const mesh = createWornGarment(id, rig);
+      if (!mesh) return false;
+      takeOff(zone);
+      group.add(mesh);
+      worn[zone] = { id, mesh };
+    } else takeOff(zone);
+    // 占脖子的装饰品（围巾、领结…）穿着时，默认的红项圈和铃铛收起来
+    const neck = ZONES.some((z) => worn[z] && garmentUsesNeck(worn[z].id));
+    rig.collar.visible = !neck;
+    rig.bell.visible = !neck;
+    return true;
+  }
+  function takeOff(zone) {
+    const w = worn[zone];
+    if (!w) return;
+    group.remove(w.mesh); // 几何、材质是缓存共用的，不释放
+    worn[zone] = null;
+  }
 
   // ---------------------------------------------------------------- 契约方法
   function setAction(name, { fade: f = 0.25 } = {}) {

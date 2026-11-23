@@ -388,6 +388,9 @@ function render() {
   }
 }
 
+/** 把当前画面存成图片（衣帽间里自拍 / 拍照用）：画一帧后立刻读画布，不带界面 */
+ctx.capture = () => { if (!renderer) return null; render(); return renderer.domElement.toDataURL('image/png'); };
+
 // ---------------- 启动 ----------------
 async function boot() {
   ctx.env = createEnvironment({

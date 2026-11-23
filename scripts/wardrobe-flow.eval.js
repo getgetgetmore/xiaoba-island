@@ -45,10 +45,13 @@ let maxOpen = 0;
 step(3, () => { track(); maxOpen = Math.max(maxOpen, door.open); return W.phase === 'room'; });
 // 窗口越窄平时的镜头离得越远，飞过去的路就越长：按“起点到门的距离”的比例来判断有没有跳变（平滑飞过去时单帧最多约 1.8%）
 ck('镜头推进全程没有跳变（60 帧下单帧位移 < 起点到门距离的 2.5%）', maxJump < dist0 * 0.025, { maxJump: f(maxJump), dist0: f(dist0) });
-ck('门自己打开，然后进入衣帽间：小狗挂到了衣帽间场景里、界面出现', maxOpen > 0.95 && W.phase === 'room' && W.inRoom && D.group.parent === W.room.dogSpot && W.info().ui && W.info().fade === 0, { maxOpen: f(maxOpen), ...W.info() });
+ck('门自己打开，然后进入衣帽间：小狗挂到了衣帽间场景里、界面出现', maxOpen > 0.95 && W.phase === 'room' && W.inRoom && D.group.parent === W.room.scene && W.info().ui && W.info().fade === 0, { maxOpen: f(maxOpen), phase: W.phase, inRoom: W.inRoom });
 ck('衣帽间里：标题和返回按钮都在', !!document.querySelector('.pet-wardrobe') && /衣帽间/.test(document.querySelector('.pet-wardrobe').textContent) && /返回/.test(document.querySelector('.pet-wardrobe button').textContent));
 step(1.5);
-ck('小狗站在衣帽间中间（位置在 dogSpot 原点）', D.group.position.length() < 1e-6 && D.action === 'idle', { pos: D.group.position.toArray().map(f), action: D.action });
+{
+  const s = W.room.dogSpot.position, p = D.group.position;
+  ck('小狗站在进门的位置（dogSpot），由 closet 接管位置', Math.hypot(p.x - s.x, p.z - s.z) < 0.05 && D.action === 'idle' && W.closet.mode === 'free' && !!B.mover.ext, { pos: p.toArray().map(f), spot: s.toArray().map(f), action: D.action });
+}
 if (stopAt === 'room') return { stop: 'room', info: W.info(), errors: P.info().errors };
 
 // ---- 返回小岛
@@ -59,7 +62,7 @@ const backOk = step(5, () => !W.active);
 step(2.5);
 const after = { parent: D.group.parent === P.ctx.scene, mode: B.mode, cam: cam.position.toArray().map(f), door: door.open, visible: D.group.visible, zoom: P.userView.zoomT };
 const camBack = Math.hypot(after.cam[0] - before.cam[0], after.cam[1] - before.cam[1], after.cam[2] - before.cam[2]);
-ck('退出后小岛复原：小狗回到岛的场景、brain 回到 auto、门关上、镜头回到原位', backOk && after.parent && after.mode === 'auto' && after.door === 0 && after.visible && camBack < 0.3 && !document.querySelector('.pet-wardrobe').offsetParent, { after, camBack: f(camBack) });
+ck('退出后小岛复原：小狗回到岛的场景、brain 回到 auto、门关上、镜头回到原位、mover 不再被接管', backOk && after.parent && after.mode === 'auto' && after.door === 0 && after.visible && camBack < 0.3 && !document.querySelector('.pet-wardrobe').offsetParent && !B.mover.ext, { after, camBack: f(camBack), ext: !!B.mover.ext });
 ck('退出后小狗落在可行走的地方、贴着地面', I.isWalkable(D.group.position.x, D.group.position.z) || B.mover.inKennel, { pos: D.group.position.toArray().map(f) });
 
 // ---- 再进一次，半路按 Esc：直接从当前位置退出来

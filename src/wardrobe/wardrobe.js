@@ -1,6 +1,6 @@
 // 换装的入口流程：点小屋正面 → 镜头转到正对小屋、从拱门推进屋里 → 后墙上衣帽间的门自己打开 → 画面淡入衣帽间（另一个小场景）；
 // 点“返回小岛”或按 Esc → 淡出 → 镜头从屋里退出来、门关上 → 回到平时的镜头。
-// 换装的具体内容（有哪些衣服、怎么换）还没定：衣帽间里现在只有小狗站在中间和一句占位提示。
+// 衣帽间里面的玩法（走动、转视角、逛橱柜、照镜子、自拍、拍照区）在 closet.js，这里只管怎么进、怎么出。
 //
 // createWardrobe(ctx, { createRoom }) → wardrobe = {
 //   active, phase, inRoom, hover,
@@ -12,6 +12,7 @@
 // 小狗：整个过程由 brain 的 game 模式托管（下雨、夜里也能进，brain.enterGame 的 anytime）。在岛上的阶段它原地待着；
 // 进了衣帽间把小狗模型挂到衣帽间场景里，出来再挂回去（位置由 brain 的 mover 下一帧写回）。
 import * as THREE from 'three';
+import { createCloset, applySavedOutfit } from './closet.js';
 
 const T = { face: 1.4, push: 1.2, door: 1.45, fade: 0.38, reveal: 0.45, leave: 0.3, out: 1.6 }; // 各阶段的时长（秒）
 const FADE_COLOR = '#fff1d0';
@@ -26,10 +27,11 @@ export function createWardrobe(ctx, { createRoom } = {}) {
   const W = {
     active: false, phase: 'idle', inRoom: false, hover: false,
     camW: 0, camPos: new THREE.Vector3(), camLook: new THREE.Vector3(), camFov: 32,
-    room: null,
+    room: null, closet: null,
     canOpen, open, close, update, resize, info,
   };
   if (!door || !dog || !brain || !canvas) return W; // stub 小岛 / 没有 brain：没有这个功能
+  applySavedOutfit(dog); // 启动时把上次穿的那身穿上（岛上、小游戏里也穿着）
 
   // ---- 镜头路线上的几个点（世界坐标）：A 小屋正前方，B 屋子中间，D 贴近衣帽间的门
   const C = door.center, N = door.normal, UP = new THREE.Vector3(0, 1, 0);
@@ -41,41 +43,24 @@ export function createWardrobe(ctx, { createRoom } = {}) {
   const from = { pos: new THREE.Vector3(), look: new THREE.Vector3(), camW: 0, open: 0, fov: 32 }; // 退出时的起点（当时的镜头和门）
   const mix = (p, q, k) => { W.camPos.lerpVectors(p.pos, q.pos, k); W.camLook.lerpVectors(p.look, q.look, k); W.camFov = p.fov + (q.fov - p.fov) * k; };
 
-  // ---- 界面：一层暖白的淡入淡出 + 衣帽间里的标题、返回按钮、占位提示
+  // ---- 界面：一层暖白的淡入淡出；ui 是衣帽间里的界面容器（内容由 closet.js 填）
   const host = canvas.parentElement || document.body;
   const root = css(document.createElement('div'), { position: 'absolute', inset: '0', zIndex: '40', pointerEvents: 'none', display: 'none', userSelect: 'none', font: `13px/1.4 ${FONT}`, color: '#4a2a14' });
   root.className = 'pet-wardrobe';
   const fade = css(document.createElement('div'), { position: 'absolute', inset: '0', background: FADE_COLOR, opacity: '0' });
   const ui = css(document.createElement('div'), { position: 'absolute', inset: '0', opacity: '0', display: 'none' });
-  const title = css(document.createElement('div'), {
-    position: 'absolute', left: '50%', top: '10px', transform: 'translateX(-50%)', padding: '5px 18px', borderRadius: '999px',
-    background: 'rgba(255,248,232,0.94)', boxShadow: '0 3px 12px rgba(40,20,5,0.22)', fontWeight: '700', fontSize: '15px', letterSpacing: '2px', whiteSpace: 'nowrap',
-  });
-  title.textContent = '衣帽间';
-  const back = css(document.createElement('button'), {
-    position: 'absolute', left: '10px', top: '10px', border: 'none', borderRadius: '999px', padding: '5px 13px', cursor: 'pointer', pointerEvents: 'auto',
-    background: '#c9783a', color: '#fff8e8', font: 'inherit', fontWeight: '600', boxShadow: '0 3px 10px rgba(40,20,5,0.25)', webkitAppRegion: 'no-drag',
-  });
-  back.type = 'button'; back.textContent = '← 返回小岛';
-  back.addEventListener('click', (e) => { e.stopPropagation(); close(); });
-  const note = css(document.createElement('div'), {
-    position: 'absolute', left: '50%', bottom: '14px', transform: 'translateX(-50%)', padding: '5px 14px', borderRadius: '999px', maxWidth: 'calc(100% - 24px)', boxSizing: 'border-box',
-    background: 'rgba(74,42,20,0.82)', color: '#fff8e8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  });
-  note.textContent = '换装功能还在准备中，先来看看衣帽间吧';
-  ui.append(title, back, note);
   root.append(ui, fade);
   host.appendChild(root);
 
   // ---- 小狗：brain 的 game 模式托管
-  let t = 0, dogParent = null, spin = 0, viewW = 1, viewH = 1, toldKennel = false;
+  let t = 0, dogParent = null, viewW = 1, viewH = 1, toldKennel = false;
   const calm = () => (dog.action === 'lie' || dog.action === 'sleep' || dog.action === 'sit' ? dog.action : 'sit');
   const ctl = {
     state: 'wardrobe',
     update(dt, S) {
       S.mover.clearGoal(); S.mover.hold = false; S.mover.spinRate = 0; S.mover.face(NaN);
       S.look(null);
-      if (W.inRoom) dog.setAction('idle');
+      if (W.inRoom && W.closet) W.closet.drive(dt, S.mover); // 衣帽间里：位置、朝向、动作都由 closet 算（写进 mover.ext）
       else dog.setAction(S.mover.gait() || calm()); // 在岛上的阶段：原地待着（原来趴着 / 睡着的保持，别的坐下）
     },
     onNeedKennel() { toldKennel = true; }, // 下雨 / 天黑：换装不受影响
@@ -85,6 +70,7 @@ export function createWardrobe(ctx, { createRoom } = {}) {
     if (W.room || !createRoom) return W.room;
     W.room = createRoom();
     W.room.resize(viewW, viewH);
+    W.closet = createCloset(ctx, { room: W.room, ui, onExit: close });
     return W.room;
   }
 
@@ -126,16 +112,17 @@ export function createWardrobe(ctx, { createRoom } = {}) {
 
   function enterRoom() {
     const room = ensureRoom();
-    W.inRoom = true; spin = 0;
+    void room;
+    W.inRoom = true;
     dogParent = dog.group.parent;
-    room.dogSpot.add(dog.group);
     dog.group.visible = true;
-    dog.group.position.set(0, 0, 0); dog.group.rotation.set(0, 0, 0);
+    W.closet.enter(); // 小狗挂进衣帽间场景，站到进门的位置
     dog.setAction('idle', { fade: 0.05 });
     ui.style.display = 'block';
   }
   function exitRoom() {
     W.inRoom = false;
+    if (W.closet) W.closet.exit();
     (dogParent || ctx.scene).add(dog.group);
     dogParent = null;
     const m = brain.mover;
@@ -210,13 +197,8 @@ export function createWardrobe(ctx, { createRoom } = {}) {
       }
       default: break;
     }
-    // 在衣帽间里：小狗站在中间，慢慢左右转着给人看；衣帽间自己的小动效
-    if (W.inRoom && W.room) {
-      spin += dt;
-      dog.group.position.set(0, 0, 0);
-      dog.group.rotation.set(0, Math.sin(spin * 0.55) * 0.45, 0);
-      W.room.update(dt);
-    }
+    // 在衣帽间里：相机、藏墙、橱柜里的动画、界面（小狗的位置在 brain 里由 closet.drive 写好了）
+    if (W.inRoom && W.closet) W.closet.update(dt);
   }
 
   function resize(w, h) { viewW = Math.max(1, w); viewH = Math.max(1, h); if (W.room) W.room.resize(viewW, viewH); }
@@ -248,10 +230,11 @@ export function createWardrobe(ctx, { createRoom } = {}) {
     if (ctx.stick && ctx.stick.state !== 'hidden') return;
     if (overFront(e)) open();
   });
-  document.addEventListener('keydown', (e) => { if (W.active && e.code === 'Escape') { e.preventDefault(); close(); } });
+  // Esc：在衣帽间的子模式里（橱柜 / 照镜子 / 拍照……）先退回自由走动；已经在自由走动才是返回小岛
+  document.addEventListener('keydown', (e) => { if (W.active && e.code === 'Escape') { e.preventDefault(); if (W.inRoom && W.phase === 'room' && W.closet && W.closet.back()) return; close(); } });
 
   function info() {
-    return { active: W.active, phase: W.phase, inRoom: W.inRoom, hover: W.hover, camW: +W.camW.toFixed(3), door: +door.open.toFixed(3), fade: +parseFloat(fade.style.opacity || '0').toFixed(2), ui: ui.style.display !== 'none', toldKennel };
+    return { active: W.active, phase: W.phase, inRoom: W.inRoom, hover: W.hover, camW: +W.camW.toFixed(3), door: +door.open.toFixed(3), fade: +parseFloat(fade.style.opacity || '0').toFixed(2), ui: ui.style.display !== 'none', toldKennel, closet: W.closet && W.inRoom ? W.closet.info() : null };
   }
   return W;
 }

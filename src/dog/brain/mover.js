@@ -22,6 +22,7 @@ export function createMover(ctx, dog) {
     spinRate: 0,        // ≠0：heading 被直接旋转（兴奋转圈）
     driveSpeed: -1,     // ≥0：直接按该速度沿 heading 前进（扑跃）
     extraY: 0,          // 额外抬高（站/趴在垫子上时 = 垫面高度），由 brain 每帧给出
+    ext: null,          // 外部接管（见 update 开头）
     reverse: false,     // true：倒退着走——身体朝向与行进方向相反（叼着垫子边缘往后拖时用）
     get settled() { return !mover.hasGoal && mover.speed < 0.08 && mover.driveSpeed < 0; },
     goTo, goStraight, clearGoal, face, update, place, gait, headingError,
@@ -316,6 +317,15 @@ export function createMover(ctx, dog) {
 
   function update(dt) {
     if (!(dt > 0)) return;
+    // 外部接管（衣帽间里走动）：位置 / 朝向 / 速度全由外部给——不在岛上，所以不查可行走、不贴岛的地面、不动 mover 自己记的岛上位置。
+    // mover.ext = { x, y, z, heading, speed }；设回 null 就恢复（小狗回到 mover 记着的岛上位置）。
+    if (mover.ext) {
+      const e = mover.ext, g = dog.group;
+      g.position.set(e.x, e.y, e.z);
+      g.rotation.set(0, e.heading, 0);
+      dog.speed = e.speed;
+      return;
+    }
     lastDt = Math.min(dt, 0.1);
     let vdes = 0;
     let desiredHeading = NaN;
