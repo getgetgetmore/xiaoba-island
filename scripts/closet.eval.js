@@ -23,9 +23,14 @@ const ZALL = ['head', 'eyes', 'neck', 'body', 'back', 'feet'];
 
 step(1);
 W.open();
-step(8, () => W.phase === 'room'); step(0.6);
+let curtIn = null;
+step(8, () => { if (curtIn === null && W.closet && W.closet.on) curtIn = W.room.curtain.open; return W.phase === 'room'; });
 const C = W.closet, R = W.room, DS = R.dress.standSpot, BR = R.dress.browse, CU = R.curtain;
-ck('进了衣帽间：自由走动模式，底下只有“自拍”一个按钮（换装 / 镜子 / 拍照区都是走过去触发），帘子收在两边', W.phase === 'room' && C.mode === 'free' && !!btn('自拍') && C.info().bar.length === 1 && CU.open === 1, C.info().bar);
+if (stopAt === 'entry') { step(4, () => CU.open > (+q.get('k') || 0.45)); return done(); }
+const curtRoom = CU.open; step(2.6);
+ck('进门时大幕是合着的，画面进来以后再拉开', curtIn === 0 && curtRoom < 0.5 && CU.open === 1, { curtIn, curtRoom, now: CU.open });
+const i0 = C.info();
+ck('进了衣帽间：自由走动模式，底下只有“自拍”一个按钮（换装 / 镜子 / 拍照区都是走过去触发）；默认是从台下平视，幕布把房间框成一个舞台', W.phase === 'room' && C.mode === 'free' && !!btn('自拍') && i0.bar.length === 1 && i0.cam[1] < 4.2 && i0.cam[2] > CU.z + 6 && i0.walls.south === false, { bar: i0.bar, cam: i0.cam });
 if (stopAt === 'free') return done();
 
 // ---- 走动：键盘

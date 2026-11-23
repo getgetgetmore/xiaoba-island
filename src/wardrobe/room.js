@@ -2,6 +2,7 @@
 // 三个区：橱柜区（north 墙，空的陈列架）、镜子区（west 墙，真的能照出小狗的穿衣镜）、拍照区（east 墙，可换背景板）。
 // south 墙是进门的那面（一扇回小屋的小门，布景）。没有天花板：留几根横梁和两串暖光小灯泡。
 // 坐标：房间中心 = 原点，地面 y = 0；x 向东（east = +x），z 向南（south = +z，north = -z）。
+// 舞台幕布：z = 2.35，横跨 x = -HW..HW（东西墙之间），单独一个 group（不属于任何墙）；setOpen(k)：1 = 收在两侧用金色绑带束起，0 = 拉上；上方檐幔在相机较高时淡出。
 // 小狗 rotation.y = θ 时面朝 (sinθ, 0, cosθ)：朝北 θ = π，朝西 θ = -π/2，朝南 θ = 0。
 // 灯光：狗毛的亮度取决于场景里第一盏平行光（rig.js furMat），所以保留一盏偏白的平行光作为第一盏，强度不低于 4.2，且不再加第二盏平行光。
 import * as THREE from 'three';
@@ -228,7 +229,8 @@ export function createWardrobeRoom() {
   // ---------- 灯泡串（没有天花板，不做横梁；每面墙顶上有一条压顶木，属于各自的墙） ----------
   // 两串小灯泡（挂在东西墙之间，低垂的弧线）
   const bulbPos = [];
-  for (const [zc, yEnd, sag] of [[-0.3, 3.12, 0.25], [2.3, 3.0, 0.28]]) {
+  const _col = new THREE.Color();
+  for (const [zc, yEnd, sag] of [[-0.3, 3.12, 0.25], [1.6, 3.0, 0.28]]) {
     const xL = -HW + 0.06, xR = HW - 0.06;
     const p = (t) => [xL + (xR - xL) * t, yEnd - sag * 4 * t * (1 - t), zc + Math.sin(t * 7 + zc) * 0.06];
     for (let i = 0; i < 36; i++) cylBetween(bG, p(i / 36), p((i + 1) / 36), 0.01, 0.01, 3, { color: C.woodDeep, ao: false, jitter: 0 });
@@ -389,9 +391,9 @@ export function createWardrobeRoom() {
   }
 
 
-  // ======================= north 墙 group：换装站台 + 帘子轨道（站台在两个柜体正前方居中） =======================
+  // ======================= north 墙 group：换装站台（在两个柜体正前方居中） =======================
   const ST = { x: 0, z: -1.8, r: 0.8, top: 0.1 };
-  const CURT = { z: 1.55, x0: -1.7, x1: 1.7, rail: 2.25, post: 1.78 };
+  const CURT = { z: 2.35, x0: -HW, x1: HW }; // 舞台幕布所在的线（东西两墙之间）
   {
     const B = bd.north;
     B.add(new THREE.CylinderGeometry(0.93, 0.95, 0.06, 28), { pos: [ST.x, 0.01, ST.z], color: C.woodDeep, ao: false });
@@ -401,13 +403,6 @@ export function createWardrobeRoom() {
     }
     const rim = new THREE.TorusGeometry(0.81, 0.028, 5, 36); rim.rotateX(PI / 2);
     B.add(rim, { pos: [ST.x, 0.085, ST.z], color: 0x4a3626, ao: false, jitter: 0.04 });
-    for (const sx of [-1, 1]) {
-      const x = sx * CURT.post;
-      cylBetween(B, [x, 0.03, CURT.z], [x, CURT.rail + 0.05, CURT.z], 0.032, 0.026, 6, { color: C.woodWarm, ao: false });
-      B.add(new THREE.CylinderGeometry(0.13, 0.15, 0.05, 10), { pos: [x, 0.0, CURT.z], color: C.woodGreyDark, ao: false });
-      B.add(new THREE.IcosahedronGeometry(0.05, 1), { pos: [x, CURT.rail + 0.09, CURT.z], color: C.woodDeep, ao: false });
-    }
-    cylBetween(B, [-CURT.post, CURT.rail, CURT.z], [CURT.post, CURT.rail, CURT.z], 0.022, 0.022, 6, { color: 0xd7b98a, ao: false });
   }
 
   // ======================= west：镜子区 =======================
@@ -527,65 +522,169 @@ export function createWardrobeRoom() {
   }
   wallGroups.east.add(mkMesh(gE, matSoft, false, false));
 
-  // ---------- 帘子：左右两片，单个动态网格（竖向褶 + 双面），setOpen(k) 改顶点，不分配对象 ----------
-  const FOLDS = 7, SEG = 8, NC = FOLDS * SEG + 1, CY1 = CURT.rail - 0.02, CY0 = 0.05, XE = 1.7;
-  const cPos = new Float32Array(2 * NC * 2 * 3), cNor = new Float32Array(2 * NC * 2 * 3), cUv = new Float32Array(2 * NC * 2 * 2);
-  const cIdx = new Uint16Array((NC - 1) * 2 * 3 * 2);
+  // ---------- 舞台幕布：大幕（两片，会动）+ 檐幔（固定，俯视时淡出）+ 金色绑带和流苏 ----------
+  // 单独一个 group 加到 scene（横跨东西两面墙，不跟任何一面墙消失）
+  const curtainGroup = new THREE.Group(); curtainGroup.name = 'stage-curtain';
+  scene.add(curtainGroup);
+  // 幕布的颜色（用户定：圣诞绿，配金色的滚边、绑带和流苏）。lo 褶谷 / mid 中间 / hi 褶峰 / band 顶上的小横幅 / glow 自发光
+  const CLOTH = { lo: 0x0e3b22, mid: 0x1b6a3a, hi: 0x3d9a5c, band: 0x175c33, glow: 0x061f0f };
+  const clothMix = (t, g) => { // t: 0 褶谷 → 1 褶峰；g: 整体明暗
+    const c = _col;
+    if (t < 0.5) c.setHex(mixHex(CLOTH.lo, CLOTH.mid, t * 2)); else c.setHex(mixHex(CLOTH.mid, CLOTH.hi, (t - 0.5) * 2));
+    c.multiplyScalar(g);
+    return c;
+  };
+  // ---- 两片大幕：每片 NC 列（沿宽度，从墙边往中间）× NR 行（从上到下） ----
+  const NF = 10, NS = 6, NC = NF * NS + 1, NR = 13, CT = 3.1, CB = 0.04, WCL = HW + 0.04;
+  const WOPEN = [];
+  for (let r = 0; r < NR; r++) WOPEN.push(r <= 7 ? 0.3 + 0.9 * Math.pow(1 - r / 7, 1.5) : 0.3 - 0.04 * (r - 7) / (NR - 8));
+  const cN = 2 * NC * NR;
+  const cPos = new Float32Array(cN * 3), cNor = new Float32Array(cN * 3), cCol = new Float32Array(cN * 3);
+  const cIdx = new Uint16Array(2 * (NC - 1) * (NR - 1) * 6);
+  const vid = (p, c, r) => (p * NC + c) * NR + r;
   for (let p = 0, t = 0; p < 2; p++) {
     for (let c = 0; c < NC; c++) {
-      for (let r = 0; r < 2; r++) { const vi = (p * NC + c) * 2 + r; cUv[vi * 2] = (c / (NC - 1)) * 3; cUv[vi * 2 + 1] = r === 0 ? 3.9 : 0; }
-      if (c < NC - 1) {
-        const a = (p * NC + c) * 2, b2 = a + 2;
-        cIdx[t++] = a; cIdx[t++] = a + 1; cIdx[t++] = b2; cIdx[t++] = a + 1; cIdx[t++] = b2 + 1; cIdx[t++] = b2;
-      }
-    }
-  }
-  const curtainGeo = new THREE.BufferGeometry();
-  curtainGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
-  curtainGeo.setAttribute('normal', new THREE.BufferAttribute(cNor, 3));
-  curtainGeo.setAttribute('uv', new THREE.BufferAttribute(cUv, 2));
-  curtainGeo.setIndex(new THREE.BufferAttribute(cIdx, 1));
-  const clothTex = (() => {
-    const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
-    const g = cv.getContext('2d'); const rn = mulberry32(55);
-    g.fillStyle = '#f2e7cc'; g.fillRect(0, 0, 256, 256);
-    for (let x = 0; x < 256; x += 64) { g.fillStyle = '#e4c79c'; g.fillRect(x, 0, 10, 256); g.fillStyle = '#d98c5f'; g.fillRect(x + 14, 0, 3, 256); }
-    for (let i = 0; i < 26; i++) {
-      const x = 32 + Math.floor(rn() * 4) * 64 + (rn() - 0.5) * 20, y = rn() * 256;
-      g.fillStyle = rn() < 0.5 ? '#e9a8a0' : '#9cb88a';
-      for (let k = 0; k < 5; k++) { const a = k * PI * 2 / 5; g.beginPath(); g.arc(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 3, 0, PI * 2); g.fill(); }
-      g.fillStyle = '#f0c24a'; g.beginPath(); g.arc(x, y, 2.2, 0, PI * 2); g.fill();
-    }
-    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
-    return t;
-  })();
-  const curtainMat = new THREE.MeshStandardMaterial({ map: clothTex, side: THREE.DoubleSide, roughness: 1, metalness: 0, color: 0xcfc4ac, emissive: 0x120d08 });
-  const curtainMesh = new THREE.Mesh(curtainGeo, curtainMat);
-  curtainMesh.name = 'curtain'; curtainMesh.castShadow = true; curtainMesh.receiveShadow = false; curtainMesh.frustumCulled = false;
-  wallGroups.north.add(curtainMesh);
-  let curtainK = 1;
-  function setOpen(k) {
-    k = k > 1 ? 1 : k < 0 ? 0 : (k === k ? k : 1);
-    curtainK = k;
-    const w = 0.3 + (1.72 - 0.3) * (1 - k), amp = 0.02 + 0.055 * k;
-    for (let p = 0; p < 2; p++) {
-      const sgn = p === 0 ? -1 : 1;
-      for (let c = 0; c < NC; c++) {
-        const u = c / (NC - 1), ph = u * FOLDS * PI * 2 + p * 0.9;
-        const x = sgn * XE - sgn * u * w, z = CURT.z + amp * Math.sin(ph) + p * 0.014;
-        const tz = amp * FOLDS * PI * 2 * Math.cos(ph) / 1, tx = -sgn * w;
-        let nx = sgn * tz, nz = -sgn * tx;
-        const nl = Math.hypot(nx, nz) || 1; nx /= nl; nz /= nl;
-        for (let r = 0; r < 2; r++) {
-          const o = ((p * NC + c) * 2 + r) * 3;
-          cPos[o] = x; cPos[o + 1] = r === 0 ? CY1 : CY0; cPos[o + 2] = z;
-          cNor[o] = nx; cNor[o + 1] = 0; cNor[o + 2] = nz;
+      const u = c / (NC - 1), s = Math.sin(u * NF * PI * 2 + p * 1.3);
+      for (let r = 0; r < NR; r++) {
+        const o = vid(p, c, r) * 3, col = clothMix(0.5 + 0.5 * s, 1 - 0.16 * (r / (NR - 1)));
+        cCol[o] = col.r; cCol[o + 1] = col.g; cCol[o + 2] = col.b;
+        if (c < NC - 1 && r < NR - 1) {
+          const A = vid(p, c, r), B = vid(p, c + 1, r), Cc = vid(p, c, r + 1), Dd = vid(p, c + 1, r + 1);
+          if (p === 0) { cIdx[t++] = A; cIdx[t++] = Cc; cIdx[t++] = B; cIdx[t++] = B; cIdx[t++] = Cc; cIdx[t++] = Dd; }
+          else { cIdx[t++] = A; cIdx[t++] = B; cIdx[t++] = Cc; cIdx[t++] = B; cIdx[t++] = Dd; cIdx[t++] = Cc; }
         }
       }
     }
-    curtainGeo.attributes.position.needsUpdate = true;
-    curtainGeo.attributes.normal.needsUpdate = true;
   }
+  const panelGeo = new THREE.BufferGeometry();
+  panelGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
+  panelGeo.setAttribute('normal', new THREE.BufferAttribute(cNor, 3));
+  panelGeo.setAttribute('color', new THREE.BufferAttribute(cCol, 3));
+  panelGeo.setIndex(new THREE.BufferAttribute(cIdx, 1));
+  const clothMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0, emissive: CLOTH.glow });
+  const panelMesh = new THREE.Mesh(panelGeo, clothMat);
+  panelMesh.name = 'curtain-panels'; panelMesh.castShadow = true; panelMesh.receiveShadow = false; panelMesh.frustumCulled = false;
+  curtainGroup.add(panelMesh);
+  let curtainK = -1;
+  let tieMesh = null;
+  function setOpen(k) {
+    k = k > 1 ? 1 : k < 0 ? 0 : (k === k ? k : 1);
+    if (k === curtainK) return; // 没变：直接返回
+    curtainK = k;
+    const ampMax = 0.03 + 0.025 * k;
+    for (let p = 0; p < 2; p++) {
+      const sgn = p === 0 ? -1 : 1;
+      for (let r = 0; r < NR; r++) {
+        const v = r / (NR - 1), wo = WOPEN[r], W = wo + (WCL - wo) * (1 - k);
+        const amp = Math.min(ampMax, 0.4 * W / NF), yb = CT - v * (CT - CB), lift = 0.2 * k * v * v * v * v;
+        for (let c = 0; c < NC; c++) {
+          const u = c / (NC - 1), o = vid(p, c, r) * 3;
+          cPos[o] = sgn * HW - sgn * u * W;
+          cPos[o + 1] = yb + lift * u * u;
+          cPos[o + 2] = CURT.z + amp * Math.sin(u * NF * PI * 2 + p * 1.3) + p * 0.012;
+        }
+      }
+      for (let r = 0; r < NR; r++) {
+        const r0 = r > 0 ? r - 1 : r, r1 = r < NR - 1 ? r + 1 : r;
+        for (let c = 0; c < NC; c++) {
+          const c0 = c > 0 ? c - 1 : c, c1 = c < NC - 1 ? c + 1 : c;
+          const a = vid(p, c0, r) * 3, b = vid(p, c1, r) * 3, d = vid(p, c, r0) * 3, e = vid(p, c, r1) * 3;
+          const ux = cPos[b] - cPos[a], uy = cPos[b + 1] - cPos[a + 1], uz = cPos[b + 2] - cPos[a + 2];
+          const vx = cPos[e] - cPos[d], vy = cPos[e + 1] - cPos[d + 1], vz = cPos[e + 2] - cPos[d + 2];
+          let nx, ny, nz;
+          if (p === 0) { nx = vy * uz - vz * uy; ny = vz * ux - vx * uz; nz = vx * uy - vy * ux; }
+          else { nx = uy * vz - uz * vy; ny = uz * vx - ux * vz; nz = ux * vy - uy * vx; }
+          const nl = Math.hypot(nx, ny, nz) || 1, o = vid(p, c, r) * 3;
+          cNor[o] = nx / nl; cNor[o + 1] = ny / nl; cNor[o + 2] = nz / nl;
+        }
+      }
+    }
+    panelGeo.attributes.position.needsUpdate = true;
+    panelGeo.attributes.normal.needsUpdate = true;
+    if (tieMesh) tieMesh.visible = k >= 0.97; // 幕拉开的过程中，绑带和流苏不显示
+  }
+  // ---- 金色绑带 + 流苏（固定在两侧墙边 y≈1.3） ----
+  const tieB = new GeoBuilder({ seed: 77, jitter: 0.04, aoK: 0 });
+  const GOLD = 0xe2a822, GOLD2 = 0xc48a14;
+  for (const sd of [-1, 1]) {
+    const cx = sd * (HW - 0.15), ty = 1.31, tz = CURT.z;
+    tieB.add(BOX(0.4, 0.1, 0.24), { pos: [cx, ty, tz], color: GOLD2, ao: false });
+    tieB.add(BOX(0.42, 0.03, 0.26), { pos: [cx, ty + 0.045, tz], color: GOLD, ao: false });
+    const kx = cx - sd * 0.2, kz = tz + 0.13;
+    tieB.add(new THREE.IcosahedronGeometry(0.075, 1), { pos: [kx, ty, kz], color: GOLD, ao: false });
+    tieB.add(new THREE.CylinderGeometry(0.1, 0.1, 0.02, 10), { pos: [kx, ty, kz - 0.04], rot: [PI / 2, 0, 0], color: GOLD2, ao: false });
+    cylBetween(tieB, [kx, ty - 0.05, kz], [kx, ty - 0.3, kz], 0.014, 0.014, 5, { color: GOLD, ao: false, jitter: 0 });
+    tieB.add(new THREE.IcosahedronGeometry(0.045, 1), { pos: [kx, ty - 0.33, kz], color: GOLD, ao: false });
+    tieB.add(new THREE.CylinderGeometry(0.035, 0.085, 0.3, 10), { pos: [kx, ty - 0.5, kz], color: GOLD2, ao: false });
+    for (let i = 0; i < 10; i++) {
+      const a = i / 10 * PI * 2;
+      cylBetween(tieB, [kx + Math.cos(a) * 0.075, ty - 0.62, kz + Math.sin(a) * 0.075], [kx + Math.cos(a) * 0.09, ty - 0.82, kz + Math.sin(a) * 0.09], 0.01, 0.006, 3, { color: GOLD, ao: false, jitter: 0 });
+    }
+  }
+  const tieGeo = tieB.build(); geos.push(tieGeo);
+  const tieMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0, emissive: 0x3a2808 });
+  tieMesh = new THREE.Mesh(tieGeo, tieMat);
+  tieMesh.name = 'curtain-ties'; tieMesh.castShadow = true;
+  curtainGroup.add(tieMesh);
+  // ---- 檐幔：5 个下垂的波浪布兜 + 交接处的小垂片 + 顶上平直的小横幅（固定，z 在大幕南侧） ----
+  const VZ = CURT.z + 0.08, VTOP = 3.15;
+  const vP = [], vN = [], vC = [], vI = [];
+  const pushV = (x, y, z, nx, ny, nz, col) => { vP.push(x, y, z); vN.push(nx, ny, nz); vC.push(col.r, col.g, col.b); return vP.length / 3 - 1; };
+  const quad = (xa, xb, ya, yb, z, hex) => { // 朝 +z 的平直条
+    _col.setHex(hex);
+    const A = pushV(xa, yb, z, 0, 0, 1, _col), B = pushV(xb, yb, z, 0, 0, 1, _col), Cc = pushV(xa, ya, z, 0, 0, 1, _col), Dd = pushV(xb, ya, z, 0, 0, 1, _col);
+    vI.push(A, Cc, B, B, Cc, Dd);
+  };
+  {
+    const NA = 25, NB = 6, SW = 1.8, FW = 6;
+    for (let j = 0; j < 5; j++) {
+      const x0 = -HW + SW * j + SW / 2, base = vP.length / 3, pts = [];
+      for (let b = 0; b <= NB; b++) for (let a = 0; a <= NA; a++) {
+        const aa = a / NA, bb = b / NB, D = 0.6 * Math.pow(Math.sin(PI * aa), 0.9);
+        const ph = aa * FW * PI * 2;
+        pts.push(x0 + (aa - 0.5) * 1.92 * (1 - 0.22 * bb), VTOP - bb * D,
+          VZ + (j % 2) * 0.025 + (0.03 + 0.03 * bb) * Math.sin(ph) * Math.sin(PI * aa) + 0.09 * Math.sin(PI * aa) * bb, ph);
+      }
+      const at = (a, b) => (b * (NA + 1) + a) * 4;
+      for (let b = 0; b <= NB; b++) for (let a = 0; a <= NA; a++) {
+        const a0 = Math.max(a - 1, 0), a1 = Math.min(a + 1, NA), b0 = Math.max(b - 1, 0), b1 = Math.min(b + 1, NB);
+        const P = at(a0, b), Q = at(a1, b), R = at(a, b0), S = at(a, b1);
+        const ux = pts[Q] - pts[P], uy = pts[Q + 1] - pts[P + 1], uz = pts[Q + 2] - pts[P + 2];
+        const vx = pts[S] - pts[R], vy = pts[S + 1] - pts[R + 1], vz = pts[S + 2] - pts[R + 2];
+        const nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux;
+        const nl = Math.hypot(nx, ny, nz) || 1;
+        const o = at(a, b), col = clothMix(0.5 + 0.5 * Math.sin(pts[o + 3]), 1 - 0.12 * (b / NB));
+        pushV(pts[o], pts[o + 1], pts[o + 2], nx / nl, ny / nl, nz / nl, col);
+      }
+      for (let b = 0; b < NB; b++) for (let a = 0; a < NA; a++) {
+        const A = base + b * (NA + 1) + a, B = A + 1, Cc = A + NA + 1, Dd = Cc + 1;
+        vI.push(A, Cc, B, B, Cc, Dd);
+      }
+    }
+    // 交接处的小垂片（约 0.5 长，收尖）
+    for (let j = 1; j < 5; j++) {
+      const x = -HW + SW * j, z = VZ + 0.07, c0 = clothMix(0.4, 1), r0 = c0.r, g0 = c0.g, b0 = c0.b, c1 = clothMix(0.8, 0.95);
+      const TL = pushV(x - 0.13, 3.02, z, 0, 0, 1, { r: r0, g: g0, b: b0 });
+      const TC = pushV(x, 3.02, z + 0.04, 0, 0.2, 1, c1);
+      const TR = pushV(x + 0.13, 3.02, z, 0, 0, 1, { r: r0, g: g0, b: b0 });
+      const TP = pushV(x, 2.5, z + 0.01, 0, 0, 1, { r: r0, g: g0, b: b0 });
+      vI.push(TL, TP, TC, TC, TP, TR);
+    }
+    // 顶上平直的小横幅（盖住上沿）+ 金色滚边
+    quad(-HW - 0.02, HW + 0.02, 2.95, 3.22, VZ + 0.1, CLOTH.band);
+    quad(-HW - 0.02, HW + 0.02, 2.93, 2.97, VZ + 0.105, 0xe2a822);
+    quad(-HW - 0.02, HW + 0.02, 3.18, 3.22, VZ + 0.105, 0xe2a822);
+  }
+  const valGeo = new THREE.BufferGeometry();
+  valGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vP), 3));
+  valGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vN), 3));
+  valGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(vC), 3));
+  valGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(vI), 1));
+  const valMat = new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0, emissive: CLOTH.glow });
+  const valMesh = new THREE.Mesh(valGeo, valMat);
+  valMesh.name = 'curtain-valance'; valMesh.castShadow = true; valMesh.receiveShadow = false;
+  curtainGroup.add(valMesh);
+  let valOp = 1;
   setOpen(1);
 
   // 镜子：Reflector（真的能照出小狗）。color 的线性值 0.5 = 叠加混合的恒等
@@ -659,7 +758,7 @@ export function createWardrobeRoom() {
   const obstacles = [];
   for (let i = 0; i < 10; i++) obstacles.push({ x: -3.9 + i * 0.8667, z: -2.95, r: 0.6 }); // 两个柜体（含中间的空隙）
   obstacles.push({ x: -4.25, z: -0.4, r: 0.5 }, { x: -4.25, z: 0.4, r: 0.5 }); // 镜子
-  obstacles.push({ x: -CURT.post, z: CURT.z, r: 0.18 }, { x: CURT.post, z: CURT.z, r: 0.18 }); // 帘子立柱
+  obstacles.push({ x: -4.25, z: CURT.z, r: 0.28 }, { x: 4.25, z: CURT.z, r: 0.28 }); // 两侧束起的幕布
   obstacles.push({ x: 4.0, z: -1.95, r: 0.4 }, { x: 4.0, z: 1.95, r: 0.4 }); // 柔光灯架
   obstacles.push({ x: -3.5, z: 1.7, r: 0.35 }); // 矮凳
   obstacles.push({ x: -4.0, z: 2.75, r: 0.5 }); // 西南角小箱子
@@ -722,11 +821,15 @@ export function createWardrobeRoom() {
     const fl = 1 + Math.sin(t * 2.3) * 0.04 + Math.sin(t * 5.7 + 1.3) * 0.035 + Math.sin(t * 13.1) * 0.015;
     bulbLight.intensity = 9.0 * fl;
     matGlow.emissiveIntensity = 1.6 * fl;
+    // 檐幔随相机高度淡出：y < 4.6 全显（默认的平视视角在这个范围里），4.6 → 5.8 渐隐，>= 5.8 隐藏——俯视时它会挡住站台和柜子（大幕和绑带一直显示）
+    const cy = camera.position.y;
+    const op = cy < 4.6 ? 1 : cy >= 5.8 ? 0 : 1 - (cy - 4.6) / 1.2;
+    if (op !== valOp) { valOp = op; valMesh.visible = op > 0; valMat.opacity = op; valMat.transparent = op < 1; }
   }
 
   function dispose() {
     for (const g of geos) g.dispose();
-    mirrorGeo.dispose(); backGeo.dispose(); curtainGeo.dispose(); curtainMat.dispose(); clothTex.dispose();
+    mirrorGeo.dispose(); backGeo.dispose(); panelGeo.dispose(); valGeo.dispose(); clothMat.dispose(); valMat.dispose(); tieMat.dispose();
     mirrorMesh.dispose?.();
     for (const tx of backdropTex) tx.dispose();
     backMat.dispose();

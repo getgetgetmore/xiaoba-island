@@ -50,7 +50,10 @@ function framePath(out, i, n) {
 if (process.versions.electron) {
   const { app, BrowserWindow } = require('electron');
   const payloadArg = process.argv.find((a) => a.startsWith('--payload='));
-  const payload = JSON.parse(Buffer.from(payloadArg.slice('--payload='.length), 'base64').toString('utf8'));
+  // 参数是一个临时文件的路径（内容 = JSON）：检查脚本一长，直接放在命令行里会超过 Windows 的命令行长度上限
+  const payloadFile = payloadArg.slice('--payload='.length);
+  const payload = JSON.parse(fs.readFileSync(payloadFile, 'utf8'));
+  try { fs.unlinkSync(payloadFile); } catch (_) { /* 删不掉就留在临时目录里 */ }
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // 每个实例独立 userData，可并行；固定缩放因子 1，截图尺寸 = --size
@@ -215,7 +218,8 @@ if (process.versions.electron) {
   url = base.replace(/\/$/, '') + '/?' + q;
   }
 
-  const payload = Buffer.from(JSON.stringify({ ...opts, url }), 'utf8').toString('base64');
+  const payload = path.join(require('os').tmpdir(), `shiba-shot-${process.pid}-${Date.now()}.json`);
+  fs.writeFileSync(payload, JSON.stringify({ ...opts, url }), 'utf8');
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   env.ELECTRON_DISABLE_SECURITY_WARNINGS = '1';

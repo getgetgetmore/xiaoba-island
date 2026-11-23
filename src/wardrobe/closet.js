@@ -26,7 +26,7 @@ import { GARMENTS, ZONES, ZONE_NAMES, createGarmentDisplay } from './garments.js
 const FONT = '"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif';
 const STORE_KEY = 'shiba.wardrobe.v1';
 const WALK_SPEED = 2.0, TURN_RATE = 7.5, DOG_R = 0.42;
-const T_CLOSE = 0.45, T_HOLD = 0.25, T_OPEN = 0.55; // 帘子拉上 / 停一下 / 拉开
+const T_CLOSE = 0.6, T_HOLD = 0.25, T_OPEN = 0.65; // 幕布拉上 / 停一下 / 拉开（幕布从墙边拉到正中，路程长，给足时间看它合上）
 const SHOW_HEADING = 0.55; // 换好亮相时的朝向：朝着镜头（南）稍微侧一点，身上、背上的也看得见
 const css = (el, o) => { Object.assign(el.style, o); return el; };
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -208,7 +208,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
   }
 
   // ------------------------------------------------------------------ 相机：右键拖动绕房间 360° 转、滚轮缩放；各个区有自己的机位
-  const orbit = { az: 0, pitch: 0.5, dist: 13, azT: 0, pitchT: 0.5, distT: 13 };
+  // 默认是“坐在台下”的平视：整面幕布（檐幔 + 两侧束起的大幕）把房间框成一个舞台。往上拖可以俯视（那时檐幔会淡出，不挡柜子）
+  const PITCH0 = 0.16;
+  const orbit = { az: 0, pitch: PITCH0, dist: 13, azT: 0, pitchT: PITCH0, distT: 13 };
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), wantPos = new THREE.Vector3(), wantLook = new THREE.Vector3(), tmp = new THREE.Vector3();
   const mouse = { x: 0, y: 0, cx: 0, cy: 0, inside: false };
   let camSnap = true, pan = 0;
@@ -224,9 +226,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
           // 帘子拉开了：镜头穿过帘子推到小狗面前
           wantPos.copy(DR.front.viewSpot); wantLook.copy(DR.front.lookAt);
         } else {
-          // 换衣服的时候：镜头在帘子外面正对站台，看着帘子拉上、再拉开
+          // 换衣服的时候：镜头退到幕布外面（像坐在台下），正对站台，看着大幕拉上、再拉开；画面上沿带到一点檐幔
           const s = SPOT.dress;
-          wantPos.set(s.x, s.y + 1.0, curtainZ + 1.6); wantLook.set(s.x, s.y + 0.8, s.z);
+          wantPos.set(s.x, 1.7, curtainZ + 3.6); wantLook.set(s.x, 1.45, s.z);
         }
         break;
       case 'mirror': wantPos.copy(room.mirror.viewSpot); wantLook.copy(room.mirror.lookAt); break;
@@ -240,7 +242,7 @@ export function createCloset(ctx, { room, ui, onExit }) {
       }
       default: { // free：绕着房间中心转，注视点稍微偏向小狗
         const cp = Math.cos(orbit.pitch);
-        wantLook.set(D.x * 0.3, 0.9, D.z * 0.3);
+        wantLook.set(D.x * 0.3, 0.9 + 0.35 * clamp((0.5 - orbit.pitch) / 0.34, 0, 1), D.z * 0.3); // 平视时注视点抬高一点，房间在画面里上下居中
         wantPos.set(wantLook.x + Math.sin(orbit.az) * cp * orbit.dist, wantLook.y + Math.sin(orbit.pitch) * orbit.dist, wantLook.z + Math.cos(orbit.az) * cp * orbit.dist);
       }
     }
@@ -262,9 +264,11 @@ export function createCloset(ctx, { room, ui, onExit }) {
 
   // ------------------------------------------------------------------ 帘子、换装的阶段
   let curtK = 1, stageT = 0, pending = null; // pending = { zone, id | null }：帘子拉上以后要换上（或脱下）的
+  let entryT = 0, openDur = T_OPEN; // 进门的开幕：先合着停 entryT 秒，再用 openDur 秒拉开（之后的开合用 T_OPEN）
   function setStage(s) { C.stage = s; stageT = 0; hoverZone = null; ui_sync(); }
   function updateDress(dt) {
     let target = 1;
+    if (entryT > 0) { entryT -= dt; target = 0; }
     if (C.mode === 'dress') {
       stageT += dt;
       if (C.stage === 'closing') { target = 0; if (stageT >= T_CLOSE) { applyPending(); setStage('hold'); } }
@@ -272,8 +276,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
       else if (C.stage === 'opening') { if (stageT >= T_OPEN) setStage('show'); }
     }
     // 帘子按固定速度开合（拉上 T_CLOSE 秒、拉开 T_OPEN 秒）
-    const sp = target < curtK ? 1 / T_CLOSE : 1 / T_OPEN;
+    const sp = target < curtK ? 1 / T_CLOSE : 1 / openDur;
     curtK = target < curtK ? Math.max(target, curtK - sp * dt) : Math.min(target, curtK + sp * dt);
+    if (curtK >= 1) openDur = T_OPEN;
     if (CUR) CUR.setOpen(ease(curtK));
   }
   /** 帘子拉上了：换上 / 脱下，小狗转过来面朝镜头站好 */
@@ -579,8 +584,9 @@ export function createCloset(ctx, { room, ui, onExit }) {
     C.on = true; C.mode = 'free'; C.stage = 'browse'; hoverItem = null; hoverZone = null; pending = null; lastUi = '';
     const s = room.dogSpot.position;
     D.x = s.x; D.y = 0; D.z = s.z; D.heading = Math.PI; D.speed = 0; D.pose = null; D.idleT = 0; D.celebrate = 0; D.stageAt = null; D.hop = 0; latch = null; stopWalk();
-    orbit.az = orbit.azT = 0; orbit.pitch = orbit.pitchT = 0.5; orbit.dist = orbit.distT = 13; camSnap = true; pan = 0;
-    curtK = 1; if (CUR) CUR.setOpen(1);
+    orbit.az = orbit.azT = 0; orbit.pitch = orbit.pitchT = PITCH0; orbit.dist = orbit.distT = 13; camSnap = true; pan = 0;
+    // 进门时大幕是合着的，画面淡入以后再慢慢拉开
+    curtK = 0; entryT = 0.7; openDur = 1.1; if (CUR) CUR.setOpen(0);
     if (room.photo.backdrops.length) room.photo.setBackdrop(clamp(store.backdrop | 0, 0, room.photo.backdrops.length - 1));
     room.scene.add(dog.group);
     dog.group.position.set(D.x, 0, D.z); dog.group.rotation.set(0, D.heading, 0);
